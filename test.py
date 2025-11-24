@@ -13,9 +13,8 @@ ds = load_dataset(
 
 # Peek a few samples
 for i, sample in enumerate(ds):
-    # typical keys in WebDataset: "jpg" for image, "json" for metadata
-    img = sample["jpg"]      # a PIL.Image or array (depending on config)
-    meta = sample["json"]    # dict with country, city, lat, lon, etc.
+    img = sample["jpg"]
+    meta = sample["json"]
 
     country = meta['country']
     latitude = meta['latitude']
