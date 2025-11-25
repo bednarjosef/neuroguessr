@@ -61,11 +61,11 @@ class LocalValDataset(Dataset):
         return img, label, item['lat'], item['lon'], item['country']
 
 class Evaluator:
-    def __init__(self, val_dir, model_config, batch_size=128, device="cuda"):
+    def __init__(self, val_dir, model_config, num_clusters, batch_size=128, device="cuda"):
         self.device = device
         
         # Load Clusters (Centers only)
-        self.cm = ClusterManager() # Will load default N from cache
+        self.cm = ClusterManager(n_clusters=num_clusters) # Will load default N from cache
         self.cm.centers, _ = self.cm.load(device='cpu') 
         
         # Setup Data

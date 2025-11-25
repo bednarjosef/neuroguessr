@@ -15,13 +15,15 @@ LOCAL_DATA_DIR = "./osv5m_local_data"
 VAL_CACHE_DIR = "./val_cache"
 MICRO_BATCH_SIZE = 256
 ACCUM_STEPS = 1
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 1e-4
 STEPS = 1000
 EVAL_INTERVAL = 100
 DEVICE = "cuda"
 NUM_WORKERS = 12
 NUM_CLUSTERS = 1000
 SIGMA_KM = 150
+LR_BACKBONE = 1e-6
+LR_HEAD = 1e-3
 PROJECT_NAME = "neuroguessr"
 
 if __name__ == '__main__':
@@ -55,7 +57,7 @@ if __name__ == '__main__':
         tar_files = glob.glob(os.path.join(LOCAL_DATA_DIR, "*.tar"))
         
     model = GeoguessrModel(num_classes=NUM_CLUSTERS).to(DEVICE)
-    model.head = torch.compile(model.head)
+    model = torch.compile(model)
     
     train_loader = create_dataloader(
         tar_files=tar_files,
@@ -73,20 +75,38 @@ if __name__ == '__main__':
         evaluator = Evaluator(
             val_dir=VAL_CACHE_DIR, 
             model_config=model.get_config(),
-            n_clusters=NUM_CLUSTERS,
+            num_clusters=NUM_CLUSTERS,
             batch_size=256, 
             device=DEVICE
         )
     else:
         print("WARNING: No validation cache found. Run prepare_val.py first!")
+    
+    backbone_params = []
+    head_params = []
 
-    optimizer = optim.AdamW(model.head.parameters(), lr=LEARNING_RATE)
-    # Using OneCycleLR (Recommended for fast convergence)
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+            
+        if "backbone" in name:
+            backbone_params.append(param)
+        elif "classifier" in name or "regressor" in name:
+            head_params.append(param)
+
+    optimizer = optim.AdamW([
+        {'params': backbone_params, 'lr': LR_BACKBONE},
+        {'params': head_params, 'lr': LR_HEAD}
+    ])
+
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=LEARNING_RATE, total_steps=STEPS, pct_start=0.1
+        optimizer, 
+        max_lr=[LR_BACKBONE, LR_HEAD], 
+        total_steps=STEPS, 
+        pct_start=0.1
     )
     
-    criterion = nn.CrossEntropyLoss(weight=loss_weights)
+    criterion = nn.CrossEntropyLoss()  # weight=loss_weights
     scaler = torch.amp.GradScaler('cuda')
 
     print("--- TRAINING START ---")
