@@ -39,17 +39,17 @@ class GeoguessrModel(nn.Module):
             param.requires_grad = False
         
         # unfreeze last layer
-        print("Unfreezing last transformer block for fine-tuning...")
-        for param in self.backbone.blocks[-1].parameters():
-            param.requires_grad = True
-        for param in self.backbone.norm.parameters():
-            param.requires_grad = True
+        # print("Unfreezing last transformer block for fine-tuning...")
+        # for param in self.backbone.blocks[-1].parameters():
+        #     param.requires_grad = True
+        # for param in self.backbone.norm.parameters():
+        #     param.requires_grad = True
 
 
         hidden_dim = 2048
         
         self.classifier = nn.Sequential(
-            nn.Linear(self.input_dim, hidden_dim),
+            nn.Linear(self.embed_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.GELU(),
             nn.Dropout(0.2),
@@ -92,8 +92,8 @@ class GeoguessrModel(nn.Module):
         super().train(mode)
         if mode:
             self.backbone.eval()
-            self.backbone.blocks[-1].train()
-            self.backbone.norm.train()
+            # self.backbone.blocks[-1].train()
+            # self.backbone.norm.train()
         return self
 
     def get_config(self):

@@ -68,7 +68,7 @@ if __name__ == '__main__':
     if not tar_files:
         tar_files = glob.glob(os.path.join(LOCAL_DATA_DIR, "*.tar"))
         
-    model = GeoguessrModel(num_classes=NUM_CLUSTERS).to(DEVICE)
+    model = GeoguessrModel(n_classes=NUM_CLUSTERS).to(DEVICE)
     model = torch.compile(model)
 
     model_config = model.get_config()
