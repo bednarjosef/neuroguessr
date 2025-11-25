@@ -16,7 +16,7 @@ def get_geo_transforms(model_config, is_training=True):
     if is_training:
         return transforms.Compose([
             # 1. Resize small edge to 256 (keep aspect ratio)
-            transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Resize(384, interpolation=transforms.InterpolationMode.BICUBIC),
             # 2. Random Crop (But conservative! 80% to 100% of image)
             # This prevents the "Zoomed in Grass" problem
             transforms.RandomResizedCrop(

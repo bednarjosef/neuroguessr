@@ -10,6 +10,11 @@ class GeoguessrModel(nn.Module):
         print(f"Loading backbone: {model_name}...")
         self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0)
         
+        self.embed_dim = self.backbone.num_features 
+        
+        self.attention_pool = nn.MultiheadAttention(embed_dim=self.embed_dim, num_heads=8, batch_first=True)
+        self.query_token = nn.Parameter(torch.randn(1, 1, self.embed_dim))
+
         # freeze
         for param in self.backbone.parameters():
             param.requires_grad = False
@@ -21,32 +26,36 @@ class GeoguessrModel(nn.Module):
         for param in self.backbone.norm.parameters():
             param.requires_grad = True
 
-            
-        self.input_dim = self.backbone.num_features
-        
+
         self.classifier = nn.Sequential(
-            nn.Linear(self.input_dim, 2048),
+            nn.Linear(self.embed_dim, 2048),
             nn.BatchNorm1d(2048),
             nn.GELU(),
             nn.Dropout(0.2),
             nn.Linear(2048, num_classes)
         )
 
-        self.climate_head = nn.Linear(self.input_dim, 31)  # 31 climate classes
-        self.land_cover_head = nn.Linear(self.input_dim, 11)  # 11 classes
-        self.soil_head = nn.Linear(self.input_dim, 15)  # 15 classes
-        self.month_head = nn.Linear(self.input_dim, 12)  # 12 classes
+        self.climate_head = nn.Linear(self.embed_dim, 31)  # 31 climate classes
+        self.land_cover_head = nn.Linear(self.embed_dim, 11)  # 11 classes
+        self.soil_head = nn.Linear(self.embed_dim, 15)  # 15 classes
+        self.month_head = nn.Linear(self.embed_dim, 12)  # 12 classes
         
-        print(f"Model initialized. Backbone frozen. Head input dim: {self.input_dim}, Output classes: {num_classes}")
+        print(f"Model initialized. Backbone frozen. Head input dim: {self.embed_dim}, Output classes: {num_classes}")
 
     def forward(self, x):
-        features = self.backbone(x)        
-        logits_cluster = self.classifier(features)
+        features = self.backbone(x)
 
-        logits_climate = self.climate_head(features)
-        logits_land = self.land_cover_head(features)
-        logits_soil = self.soil_head(features)
-        logits_month = self.month_head(features)
+        b_size = features.shape[0]
+        query = self.query_token.expand(b_size, -1, -1)
+        attn_output, _ = self.attention_pool(query, features, features)
+        pooled_features = attn_output.squeeze(1)
+
+        logits_cluster = self.classifier(pooled_features)
+
+        logits_climate = self.climate_head(pooled_features)
+        logits_land = self.land_cover_head(pooled_features)
+        logits_soil = self.soil_head(pooled_features)
+        logits_month = self.month_head(pooled_features)
 
         return logits_cluster, logits_climate, logits_land, logits_soil, logits_month
     
