@@ -1,28 +1,29 @@
 import torch
 import torch.nn as nn
-import timm
-from torch.utils.data import DataLoader, IterableDataset
-import webdataset as wds
-from model import GeoguessrModel
 import numpy as np
 import math
+from model import GeoguessrModel
+
+# --- IMPORT MODULES ---
+from clusters import ClusterManager
+from dataset import create_dataloader
 
 # --- CONFIGURATION ---
-MODEL_PATH = "geoguessr_geocells_200.pth"
-CLUSTER_PATH = "cluster_centers_200.npy" # You must have this file!
+MODEL_PATH = "geoguessr_model_1.pth"
+# Use a few shards from the official OSV5M test set
+VAL_URLS = ["https://huggingface.co/datasets/osv5m/osv5m-wds/resolve/main/test/{:04d}.tar".format(i) for i in range(10)]
 BATCH_SIZE = 128
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 NUM_CLUSTERS = 200
+NUM_WORKERS = 4
 
-# Target Countries (Used for filtering input data only)
-TARGET_COUNTRIES = [
-    'AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG', 'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI', 'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL', 'IT', 'JP', 'JO', 'KE', 'KG', 'LV', 'LB', 'LS', 'LI', 'LT', 'LU', 'MY', 'MX', 'MN', 'ME', 'NA', 'NL', 'NZ', 'NG', 'MK', 'NO', 'OM', 'PS', 'PA', 'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS', 'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR', 'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN',
-]
-country_set = set(TARGET_COUNTRIES)
-
-# --- MATH HELPER FUNCTIONS ---
+# --- MATH HELPERS ---
 def cartesian_to_latlon(x, y, z):
     """Converts 3D cartesian coordinates back to Lat/Lon (degrees)."""
+    # Ensure inputs are floats, not tensors, for numpy math
+    if isinstance(x, torch.Tensor):
+        x, y, z = x.cpu().numpy(), y.cpu().numpy(), z.cpu().numpy()
+        
     lat_rad = np.arcsin(z)
     lon_rad = np.arctan2(y, x)
     return np.degrees(lat_rad), np.degrees(lon_rad)
@@ -38,133 +39,76 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-# --- DATASET CLASS ---
-class WebDatasetGeocellEval(IterableDataset):
-    def __init__(self, urls, transform, target_countries, cluster_centers):
-        self.urls = urls
-        self.transform = transform
-        self.target_countries = target_countries
-        self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
-
-    def get_closest_cluster(self, lat, lon):
-        # Convert single point to 3D
-        lat_rad = np.deg2rad(lat)
-        lon_rad = np.deg2rad(lon)
-        x = np.cos(lat_rad) * np.cos(lon_rad)
-        y = np.cos(lat_rad) * np.sin(lon_rad)
-        z = np.sin(lat_rad)
-        point = torch.tensor([x, y, z], dtype=torch.float32)
-        
-        # Find nearest center
-        dists = torch.sum((self.cluster_centers - point)**2, dim=1)
-        return torch.argmin(dists).item()
-
-    def __iter__(self):
-        dataset = (
-            wds.WebDataset(self.urls, resampled=False, handler=wds.warn_and_continue)
-            .decode("pil")
-            .to_tuple("jpg", "json")
-        )
-
-        for img, meta in dataset:
-            try:
-                # Filter by country
-                country = meta.get('country')
-                if not country or country not in self.target_countries:
-                    continue
-                
-                lat = meta.get('latitude')
-                lon = meta.get('longitude')
-                if lat is None or lon is None:
-                    continue
-
-                # Generate Ground Truth
-                label = self.get_closest_cluster(lat, lon)
-                img_tensor = self.transform(img.convert("RGB"))
-                
-                # Yield: Image, Class Label, Actual Lat, Actual Lon
-                yield img_tensor, label, lat, lon
-            except Exception:
-                continue
-
-# --- MAIN EVALUATION ---
+# --- MAIN ---
 if __name__ == "__main__":
-    print(f"Evaluating on device: {DEVICE}")
-
-    # 1. Load Cluster Centers (Required for Distance Calculation)
+    print(f"--- STARTING EVALUATION (K={NUM_CLUSTERS}) ---")
+    
+    # 1. Load Knowledge (Cluster Centers)
+    cluster_manager = ClusterManager(n_clusters=NUM_CLUSTERS)
     try:
-        # Load the 3D coordinates (200, 3)
-        cluster_centers_3d = np.load(CLUSTER_PATH)
-        print(f"Loaded {len(cluster_centers_3d)} cluster centers.")
-    except Exception as e:
-        print(f"Error loading {CLUSTER_PATH}: {e}")
-        print("Did you run train.py? It saves this file at the end.")
+        # We only need centers for eval. Weights are irrelevant here.
+        cluster_centers, _ = cluster_manager.load(device='cpu') 
+        print(f"Loaded {len(cluster_centers)} cluster centers.")
+    except FileNotFoundError:
+        print("Error: Clusters not found. You must run train.py (or generate) first!")
         exit()
 
     # 2. Load Model
-    # Note: num_classes is now NUM_CLUSTERS (200), not len(countries)
     model = GeoguessrModel(num_classes=NUM_CLUSTERS)
-    
     try:
         state_dict = torch.load(MODEL_PATH, map_location=DEVICE)
-        clean_state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
-        model.load_state_dict(clean_state_dict, strict=False)
-        print("Model weights loaded successfully.")
+        model.load_state_dict(state_dict, strict=False)
+        print("Model weights loaded.")
     except Exception as e:
-        print(f"Error loading weights: {e}")
+        print(f"Error loading model: {e}")
         exit()
-    
+        
     model = model.to(DEVICE)
     model.eval()
 
-    # 3. Setup Data
-    data_config = model.get_config()
-    transforms = timm.data.create_transform(**data_config, is_training=False)
+    # 3. Create Data Loader
+    # mode='eval' ensures we get (img, label, lat, lon) and no shuffling
+    val_loader = create_dataloader(
+        tar_files=VAL_URLS,
+        model_config=model.get_config(),
+        cluster_centers=cluster_centers, # Pass numpy array
+        batch_size=BATCH_SIZE,
+        workers=NUM_WORKERS,
+        mode='eval'
+    )
 
-    print("Generating Validation URLs...")
-    # Using the test split from OSV5M
-    base_url = "https://huggingface.co/datasets/osv5m/osv5m-wds/resolve/main/test/{:04d}.tar"
-    urls = [base_url.format(i) for i in range(10)] # Limit to 10 shards for quick test
-
-    val_dataset = WebDatasetGeocellEval(urls, transforms, country_set, cluster_centers_3d)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, num_workers=4)
-
-    # 4. Run Inference
-    print("Starting Inference...")
-    
+    # 4. Inference Loop
+    print("Running Inference...")
     correct_clusters = 0
     total_samples = 0
     distances_km = []
-    
+
     with torch.no_grad():
         for i, (imgs, labels, true_lats, true_lons) in enumerate(val_loader):
             imgs = imgs.to(DEVICE)
             labels = labels.to(DEVICE)
             
-            # Forward Pass
+            # Predict
             outputs = model(imgs)
             _, preds = torch.max(outputs, 1)
             
-            # --- METRICS ---
-            # 1. Classification Accuracy (Did we pick the exact right cell?)
+            # A. Exact Accuracy
             correct_clusters += (preds == labels).sum().item()
             total_samples += labels.size(0)
             
-            # 2. Distance Error (The GeoGuessr Metric)
-            # Convert predictions (cluster IDs) back to Lat/Lon
+            # B. Distance Calculation
+            # 1. Get the 3D center of the predicted cluster
             pred_indices = preds.cpu().numpy()
+            pred_centers_3d = cluster_centers[pred_indices] 
             
-            # Get the 3D center of the predicted cluster
-            pred_centers_3d = cluster_centers_3d[pred_indices] 
-            
-            # Convert 3D -> Lat/Lon
+            # 2. Convert predicted 3D -> Lat/Lon
             pred_lats, pred_lons = cartesian_to_latlon(
                 pred_centers_3d[:, 0], 
                 pred_centers_3d[:, 1], 
                 pred_centers_3d[:, 2]
             )
             
-            # Calculate distance for batch
+            # 3. Calculate Haversine distance vs Truth
             current_lats = true_lats.numpy()
             current_lons = true_lons.numpy()
             
@@ -173,36 +117,32 @@ if __name__ == "__main__":
                 distances_km.append(dist)
             
             if (i+1) % 10 == 0:
-                avg_dist_so_far = sum(distances_km) / len(distances_km)
-                print(f"Batch {i+1}: Avg Error = {avg_dist_so_far:.1f} km")
+                print(f"Batch {i+1}: Running Avg Error = {np.mean(distances_km):.1f} km")
 
     # 5. Final Report
-    print("\n" + "="*40)
-    print("   EVALUATION RESULTS (GEOCELLS)   ")
-    print("="*40)
-    
     if total_samples > 0:
+        print("\n" + "="*40)
+        print(f"   FINAL RESULTS (N={total_samples})   ")
+        print("="*40)
+        
         accuracy = correct_clusters / total_samples * 100
-        median_dist = np.median(distances_km)
         mean_dist = np.mean(distances_km)
+        median_dist = np.median(distances_km)
         
-        # Calculate "2500km Score" (GeoGuessr standard: 5000pts if <25m, 0pts if >2000km approx)
-        # This is a loose approximation
-        guesses_under_100km = sum(1 for d in distances_km if d < 100)
-        percentage_under_100km = (guesses_under_100km / total_samples) * 100
-        
-        print(f"Total Images:          {total_samples}")
         print(f"Exact Cluster Acc:     {accuracy:.2f}%")
         print(f"Mean Distance Error:   {mean_dist:.1f} km")
         print(f"Median Distance Error: {median_dist:.1f} km")
-        print(f"Guesses < 100km:       {percentage_under_100km:.1f}%")
         
-        print("-" * 40)
-        if mean_dist < 1500:
-            print("Verdict: The model is learning geography!")
-        elif mean_dist < 3000:
-            print("Verdict: Model understands continents, but not regions.")
-        else:
-            print("Verdict: Model is guessing randomly.")
+        # GeoGuessr Scoring (Approximate)
+        # 5000pts if < 25m. Drops exponentially.
+        score_sum = 0
+        for d in distances_km:
+            # Simple exponential decay formula similar to GeoGuessr
+            score = 5000 * np.exp(-d / 2000) 
+            score_sum += score
+        avg_score = score_sum / total_samples
+        
+        print(f"Est. GeoGuessr Score:  {avg_score:.0f} / 5000")
+        print("="*40)
     else:
-        print("No valid images found.")
+        print("No samples found. Check your URLs or Country List.")
