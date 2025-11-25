@@ -74,7 +74,7 @@ class ClusterDataset(IterableDataset):
                 
                 ts = meta.get('captured_at')
                 if ts:
-                    month_label = datetime.datetime.fromtimestamp(ts / 1000.0).month  # - 1
+                    month_label = datetime.datetime.fromtimestamp(ts / 1000.0).month - 1
                 else:
                     month_label = -1
 
