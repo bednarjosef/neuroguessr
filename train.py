@@ -16,11 +16,12 @@ VAL_CACHE_DIR = "./val_cache"
 MICRO_BATCH_SIZE = 256
 ACCUM_STEPS = 1
 LEARNING_RATE = 5e-4
-STEPS = 1000
+STEPS = 2000
 EVAL_INTERVAL = 100
 DEVICE = "cuda"
 NUM_WORKERS = 12
 NUM_CLUSTERS = 1000
+SIGMA_KM = 500
 PROJECT_NAME = "neuroguessr"
 
 if __name__ == '__main__':
@@ -44,6 +45,9 @@ if __name__ == '__main__':
     except FileNotFoundError:
         cluster_centers, loss_weights = cluster_manager.generate()
         loss_weights = loss_weights.to(DEVICE)
+
+    soft_targets_matrix = cluster_manager.generate_soft_targets(sigma_km=SIGMA_KM)
+    soft_targets_matrix = soft_targets_matrix.to(DEVICE)
 
     search_path = os.path.join(LOCAL_DATA_DIR, "train", "*.tar")
     tar_files = glob.glob(search_path)
@@ -90,11 +94,15 @@ if __name__ == '__main__':
     optimizer.zero_grad()
 
     for step, (imgs, labels) in enumerate(train_loader):
+        if step >= (STEPS * ACCUM_STEPS):
+            break
+
         imgs, labels = imgs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
+        target_probs = soft_targets_matrix[labels]
         
         with torch.amp.autocast('cuda'):
             outputs = model(imgs)
-            loss = criterion(outputs, labels) / ACCUM_STEPS
+            loss = criterion(outputs, target_probs) / ACCUM_STEPS
         
         scaler.scale(loss).backward()
         
@@ -129,9 +137,6 @@ if __name__ == '__main__':
                 # Save Checkpoint
                 torch.save(model.state_dict(), f"checkpoint_last.pth")
 
-        if step >= (STEPS * ACCUM_STEPS):
-            break
-
-    torch.save(model.state_dict(), "geoguessr_final.pth")
+    torch.save(model.state_dict(), "geoguessr_cluster_1k_soft.pth")
     wandb.finish()
     print("Training Complete.")

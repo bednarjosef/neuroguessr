@@ -76,6 +76,48 @@ class ClusterManager:
         weights = torch.load(self.weights_path, map_location=device)
         
         return centers, weights
+    
+    def generate_soft_targets(self, sigma_km=500.0):
+        print(f"Generating Distance-Based Soft Targets (Sigma={sigma_km}km)...")
+        centers, _ = self.load(device='cpu') # Shape (N, 3)
+        
+        # 1. Convert Centers to Lat/Lon for Haversine
+        # (Reusing your math logic)
+        z = centers[:, 2]
+        y = centers[:, 1]
+        x = centers[:, 0]
+        lats = np.degrees(np.arcsin(z))
+        lons = np.degrees(np.arctan2(y, x))
+        
+        # 2. Compute Pairwise Haversine Distances (N x N)
+        # Broadcasting magic to do it fast without loops
+        lat_rad = np.radians(lats)
+        lon_rad = np.radians(lons)
+        
+        # Shape: (N, 1) and (1, N)
+        lat1 = lat_rad[:, None]
+        lat2 = lat_rad[None, :]
+        lon1 = lon_rad[:, None]
+        lon2 = lon_rad[None, :]
+        
+        dphi = lat2 - lat1
+        dlambda = lon2 - lon1
+        
+        a = np.sin(dphi/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlambda/2)**2
+        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+        dists_km = 6371 * c
+        
+        # 3. Apply Gaussian Kernel
+        # P(x) = exp(-dist^2 / (2 * sigma^2))
+        targets = np.exp(-(dists_km**2) / (2 * sigma_km**2))
+        
+        # 4. Normalize so rows sum to 1.0 (Probability Distribution)
+        # This ensures it works with CrossEntropyLoss
+        sums = targets.sum(axis=1, keepdims=True)
+        soft_targets = targets / sums
+        
+        # Convert to Tensor (N, N)
+        return torch.tensor(soft_targets, dtype=torch.float32)
 
     def get_closest_label(self, lat, lon, centers_tensor):
         """
