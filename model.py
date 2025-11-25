@@ -1,10 +1,4 @@
 import timm
-
-model = timm.create_model('vit_large_patch14_clip_336.laion2b_ft_in12k_in1k', pretrained=True, num_classes=0)
-model = model.eval()
-
-
-
 import torch
 import torch.nn as nn
 import timm
@@ -37,5 +31,4 @@ class GeoguessrModel(nn.Module):
     def get_config(self):
         """Helper to get the image transforms required by this specific backbone"""
         return timm.data.resolve_model_data_config(self.backbone)
-    
     
