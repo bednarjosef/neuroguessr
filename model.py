@@ -4,11 +4,30 @@ import torch.nn as nn
 import torch.nn.functional as F
 import timm
 
+
+class ResBlock(nn.Module):
+    def __init__(self, dim, dropout=0.1):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.BatchNorm1d(dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim, dim),
+            nn.BatchNorm1d(dim)
+        )
+        self.act = nn.GELU()
+
+    def forward(self, x):
+        # x + net(x) is the "Residual" connection
+        return self.act(x + self.net(x))
+    
+
 class GeoguessrModel(nn.Module):
-    def __init__(self, num_classes, model_name='vit_large_patch14_clip_336.laion2b_ft_in12k_in1k', pretrained=True):
+    def __init__(self, n_classes, model_name='vit_large_patch14_clip_336.laion2b_ft_in12k_in1k', pretrained=True):
         super().__init__()
         print(f"Loading backbone: {model_name}...")
-        self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0)
+        self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0)  # global_pool=''
         
         self.embed_dim = self.backbone.num_features 
         
@@ -27,12 +46,22 @@ class GeoguessrModel(nn.Module):
             param.requires_grad = True
 
 
+        hidden_dim = 2048
+        
         self.classifier = nn.Sequential(
-            nn.Linear(self.embed_dim, 2048),
-            nn.BatchNorm1d(2048),
+            nn.Linear(self.input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.GELU(),
             nn.Dropout(0.2),
-            nn.Linear(2048, num_classes)
+            
+            # Deep Layer 1
+            ResBlock(hidden_dim, dropout=0.2),
+            
+            # Deep Layer 2
+            ResBlock(hidden_dim, dropout=0.2),
+            
+            # Output Layer
+            nn.Linear(hidden_dim, n_classes)
         )
 
         self.climate_head = nn.Linear(self.embed_dim, 31)  # 31 climate classes
@@ -40,10 +69,10 @@ class GeoguessrModel(nn.Module):
         self.soil_head = nn.Linear(self.embed_dim, 15)  # 15 classes
         self.month_head = nn.Linear(self.embed_dim, 12)  # 12 classes
         
-        print(f"Model initialized. Backbone frozen. Head input dim: {self.embed_dim}, Output classes: {num_classes}")
+        print(f"Model initialized. Backbone frozen. Head input dim: {self.embed_dim}, Output classes: {n_classes}")
 
     def forward(self, x):
-        features = self.backbone(x)
+        features = self.backbone.forward_features(x)
 
         b_size = features.shape[0]
         query = self.query_token.expand(b_size, -1, -1)

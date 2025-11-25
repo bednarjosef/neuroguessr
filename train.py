@@ -107,7 +107,7 @@ if __name__ == '__main__':
             
         if "backbone" in name:
             backbone_params.append(param)
-        elif "classifier" in name or "regressor" in name:
+        else:
             head_params.append(param)
 
     optimizer = optim.AdamW([
