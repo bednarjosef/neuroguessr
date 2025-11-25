@@ -11,6 +11,7 @@ class GeoguessrModel(nn.Module):
         
         for param in self.backbone.parameters():
             param.requires_grad = False
+        self.backbone.eval()
             
         self.input_dim = self.backbone.num_features
         
