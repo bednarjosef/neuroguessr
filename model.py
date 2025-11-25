@@ -28,6 +28,12 @@ class GeoguessrModel(nn.Module):
         features = self.backbone(x)        
         logits = self.head(features)
         return logits
+    
+    def train(self, mode=True):
+        super().train(mode)
+        if mode:
+            self.backbone.eval()
+        return self
 
     def get_config(self):
         """Helper to get the image transforms required by this specific backbone"""

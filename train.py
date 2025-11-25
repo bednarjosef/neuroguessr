@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import glob
 import os
-import wandb  # <--- NEW IMPORT
+import wandb
 
 from model import GeoguessrModel
 from clusters import ClusterManager
@@ -16,12 +16,12 @@ VAL_CACHE_DIR = "./val_cache"
 MICRO_BATCH_SIZE = 256
 ACCUM_STEPS = 1
 LEARNING_RATE = 5e-4
-STEPS = 2000
+STEPS = 1000
 EVAL_INTERVAL = 100
 DEVICE = "cuda"
 NUM_WORKERS = 12
 NUM_CLUSTERS = 1000
-SIGMA_KM = 500
+SIGMA_KM = 150
 PROJECT_NAME = "neuroguessr"
 
 if __name__ == '__main__':
@@ -127,7 +127,7 @@ if __name__ == '__main__':
                  print(f"Step {step+1}/{STEPS} | Loss: {loss_val:.6f}")
 
             # --- VALIDATION ---
-            if evaluator and (step + 1) % EVAL_INTERVAL == 0:
+            if evaluator and (((step + 1) % EVAL_INTERVAL == 0) or step == 0):
                 # Get metrics dict (mean_km, median_km, geo_score)
                 val_metrics = evaluator.run(model)
                 
