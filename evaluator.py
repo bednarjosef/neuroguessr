@@ -30,23 +30,21 @@ class LocalValDataset(Dataset):
                         meta = json.load(f)
                     
                     # EXTRACT METADATA (Default to -1 if missing)
+                    # Limits adjusted to model definition
                     clim = int(meta.get('climate', -1))
+                    if clim < 0 or clim >= 33: clim = -1
+
                     land = int(meta.get('land_cover', -1))
+                    if land < 0 or land >= 18: land = -1
+
                     soil = int(meta.get('soil', -1))
-
-                    if clim < 0 or clim >= 31: 
-                        clim = -1
-
-                    if land < 0 or land >= 11:
-                        land = -1
-
-                    if soil < 0 or soil >= 15:
-                        soil = -1
+                    if soil < 0 or soil >= 33: soil = -1
                     
-                    # Parse Month
+                    # Parse Month (0-11)
                     ts = meta.get('captured_at')
                     if ts:
                         month = datetime.datetime.fromtimestamp(ts / 1000.0).month - 1
+                        if month < 0 or month >= 12: month = -1
                     else:
                         month = -1
                     
@@ -100,17 +98,60 @@ class Evaluator:
         c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
         return R * c
 
+    def get_coords_from_indices(self, indices):
+        """
+        Input: Indices tensor [Batch, K]
+        Output: Lats, Lons [Batch, K] (numpy arrays)
+        """
+        # Look up centers
+        centers = self.centers_gpu[indices] # [Batch, K, 3]
+        
+        z = centers[:, :, 2]
+        y = centers[:, :, 1]
+        x = centers[:, :, 0]
+        
+        lats = torch.rad2deg(torch.asin(z)).cpu().numpy()
+        lons = torch.rad2deg(torch.atan2(y, x)).cpu().numpy()
+        return lats, lons
+
+    def calculate_consensus_distance(self, top_k_indices, true_lats, true_lons):
+        """
+        Averages the 3D coordinates of the top K clusters to find a 'consensus' point,
+        then calculates distance from that point to truth.
+        """
+        # 1. Get 3D coordinates of Top K centers
+        centers = self.centers_gpu[top_k_indices] # [Batch, K, 3]
+        
+        # 2. Average them (Mean of vectors)
+        mean_center = torch.mean(centers, dim=1) # [Batch, 3]
+        
+        # 3. Normalize to Unit Sphere (Project back to Earth surface)
+        # This is important! The mean of two points on a sphere cuts through the earth.
+        # We need to project it back out to the surface.
+        mean_center = torch.nn.functional.normalize(mean_center, p=2, dim=1)
+        
+        # 4. Convert to Lat/Lon
+        z, y, x = mean_center[:, 2], mean_center[:, 1], mean_center[:, 0]
+        pred_lats = torch.rad2deg(torch.asin(z)).cpu().numpy()
+        pred_lons = torch.rad2deg(torch.atan2(y, x)).cpu().numpy()
+        
+        # 5. Calculate Distance
+        return self.haversine(true_lats.numpy(), true_lons.numpy(), pred_lats, pred_lons)
+
     def run(self, model):
         model.eval()
-        all_dists = []
         
-        # Track accuracy for all heads
-        stats = {k: {'correct': 0, 'total': 0} for k in ['top1', 'top5', 'clim', 'land', 'soil', 'month']}
+        # Distance containers
+        dists_top1 = []
+        dists_top5_cons = []  # Consensus
+        dists_top10_cons = [] # Consensus
+        
+        # Track accuracy
+        stats = {k: {'correct': 0, 'total': 0} for k in ['top1', 'top5', 'top10', 'clim', 'land', 'soil', 'month']}
         
         print("\n--- RUNNING EVALUATION ---")
         with torch.no_grad():
             for batch in self.loader:
-                # Unpack (8 items!)
                 imgs = batch[0].to(self.device)
                 lbl_loc = batch[1].to(self.device)
                 true_lats = batch[2]
@@ -123,18 +164,24 @@ class Evaluator:
                 # Forward
                 out_loc, out_clim, out_land, out_soil, out_month = model(imgs)
                 
-                # --- METRICS CALC ---
+                # --- ACCURACY METRICS ---
                 
-                # 1. Location Acc
+                # Top-1
                 _, preds_loc = torch.max(out_loc, 1)
                 stats['top1']['correct'] += (preds_loc == lbl_loc).sum().item()
                 stats['top1']['total'] += lbl_loc.size(0)
                 
+                # Top-5
                 _, top5 = out_loc.topk(5, 1, True, True)
                 stats['top5']['correct'] += (top5 == lbl_loc.unsqueeze(1)).sum().item()
                 stats['top5']['total'] += lbl_loc.size(0)
-                
-                # 2. Aux Acc (Handle -1 ignore index)
+
+                # Top-10
+                _, top10 = out_loc.topk(10, 1, True, True)
+                stats['top10']['correct'] += (top10 == lbl_loc.unsqueeze(1)).sum().item()
+                stats['top10']['total'] += lbl_loc.size(0)
+
+                # Aux Tasks
                 def update_acc(name, outputs, labels):
                     mask = labels != -1
                     if mask.sum() > 0:
@@ -147,31 +194,47 @@ class Evaluator:
                 update_acc('soil', out_soil, lbl_soil)
                 update_acc('month', out_month, lbl_month)
 
-                # 3. Distances
+                # --- DISTANCE METRICS ---
+                
+                # 1. Top-1 Distance (Standard)
+                # Convert single predicted index to Lat/Lon
                 pred_centers = self.centers_gpu[preds_loc]
                 z, y, x = pred_centers[:, 2], pred_centers[:, 1], pred_centers[:, 0]
                 pred_lats = torch.rad2deg(torch.asin(z)).cpu().numpy()
                 pred_lons = torch.rad2deg(torch.atan2(y, x)).cpu().numpy()
-                dists = self.haversine(true_lats.numpy(), true_lons.numpy(), pred_lats, pred_lons)
-                all_dists.extend(dists)
+                dists_top1.extend(self.haversine(true_lats.numpy(), true_lons.numpy(), pred_lats, pred_lons))
+                
+                # 2. Top-5 Consensus Distance
+                # Uses top5 indices from above
+                dists_top5_cons.extend(self.calculate_consensus_distance(top5, true_lats, true_lons))
+                
+                # 3. Top-10 Consensus Distance
+                # Uses top10 indices from above
+                dists_top10_cons.extend(self.calculate_consensus_distance(top10, true_lats, true_lons))
 
-        # Summarize
-        mean_km = np.mean(all_dists)
-        med_km = np.median(all_dists)
+        # --- SUMMARY CALCS ---
         
-        # Calculate percentages
-        results = {
-            "val/mean_km": mean_km,
-            "val/median_km": med_km,
-            "val/geo_score": np.mean(5000 * np.exp(-np.array(all_dists)/2000))
-        }
-        
+        def calc_stats(dists, prefix):
+            d = np.array(dists)
+            return {
+                f"{prefix}_mean_km": np.mean(d),
+                f"{prefix}_median_km": np.median(d),
+                f"{prefix}_geo_score": np.mean(5000 * np.exp(-d/2000))
+            }
+
+        results = {}
+        # Add Distance stats
+        results.update(calc_stats(dists_top1, "val/top1"))
+        results.update(calc_stats(dists_top5_cons, "val/top5"))
+        results.update(calc_stats(dists_top10_cons, "val/top10"))
+
+        # Add Accuracy stats
         for k, v in stats.items():
             acc = (v['correct'] / v['total'] * 100) if v['total'] > 0 else 0
             results[f"val/acc_{k}"] = acc
             print(f"{k.upper()}: {acc:.2f}%")
 
-        print(f"Mean: {mean_km:.0f}km | Med: {med_km:.0f}km")
+        print(f"Top-1 Median: {results['val/top1_median_km']:.0f}km | Top-5 Median: {results['val/top5_median_km']:.0f}km | Top-10 Median: {results['val/top10_median_km']:.0f}km")
         
         model.train()
         return results
