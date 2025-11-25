@@ -24,7 +24,7 @@ class ResBlock(nn.Module):
     
 
 class GeoguessrModel(nn.Module):
-    def __init__(self, n_classes, model_name='vit_large_patch14_clip_336.laion2b_ft_in12k_in1k', pretrained=True):
+    def __init__(self, n_classes, model_name='tiny_vit_21m_512.dist_in22k_ft_in1k', pretrained=True):
         super().__init__()
         print(f"Loading backbone: {model_name}...")
         self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0)  # global_pool=''

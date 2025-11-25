@@ -72,7 +72,7 @@ if __name__ == '__main__':
     model = torch.compile(model)
 
     model_config = model.get_config()
-    geo_transforms = get_geo_transforms(model_config, is_training=True)
+    # geo_transforms = get_geo_transforms(model_config, is_training=True)
     
     train_loader = create_dataloader(
         tar_files=tar_files,
@@ -81,7 +81,7 @@ if __name__ == '__main__':
         batch_size=MICRO_BATCH_SIZE,
         workers=NUM_WORKERS,
         mode='train',
-        custom_transform=geo_transforms,
+        # custom_transform=geo_transforms,
     )
     
     # 3. Initialize Evaluator

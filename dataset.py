@@ -20,7 +20,7 @@ def get_geo_transforms(model_config, is_training=True):
             # 2. Random Crop (But conservative! 80% to 100% of image)
             # This prevents the "Zoomed in Grass" problem
             transforms.RandomResizedCrop(
-                size=(336, 336), 
+                size=(384, 384), 
                 scale=(0.8, 1.0), # <--- CRITICAL FIX: Only crop large chunks
                 ratio=(0.9, 1.1),
                 interpolation=transforms.InterpolationMode.BICUBIC
