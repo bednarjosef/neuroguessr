@@ -20,10 +20,12 @@ STEPS = 1000
 EVAL_INTERVAL = 100
 DEVICE = "cuda"
 NUM_WORKERS = 12
-NUM_CLUSTERS = 1000
+NUM_CLUSTERS = 200
 SIGMA_KM = 150
 LR_BACKBONE = 1e-6
 LR_HEAD = 1e-3
+LAMBDA_CLS = 1.0
+LAMBDA_REG = 30.0
 PROJECT_NAME = "neuroguessr"
 
 if __name__ == '__main__':
@@ -106,23 +108,27 @@ if __name__ == '__main__':
         pct_start=0.1
     )
     
-    criterion = nn.CrossEntropyLoss()  # weight=loss_weights
+    crit_cls = nn.CrossEntropyLoss(label_smoothing=0.1)
+    crit_reg = nn.MSELoss()
     scaler = torch.amp.GradScaler('cuda')
 
     print("--- TRAINING START ---")
     model.train()
     optimizer.zero_grad()
 
-    for step, (imgs, labels) in enumerate(train_loader):
+    for step, (imgs, labels, true_xyz) in enumerate(train_loader):
         if step >= (STEPS * ACCUM_STEPS):
             break
 
-        imgs, labels = imgs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True)
+        imgs, labels, true_xyz = imgs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True), true_xyz.to("cuda")
         target_probs = soft_targets_matrix[labels]
         
         with torch.amp.autocast('cuda'):
-            outputs = model(imgs)
-            loss = criterion(outputs, target_probs) / ACCUM_STEPS
+            logits, coords = model(imgs)
+
+            l_cls = crit_cls(logits, labels)
+            l_reg = crit_reg(coords, true_xyz)
+            loss = ((LAMBDA_CLS * l_cls) + (LAMBDA_REG * l_reg)) / ACCUM_STEPS
         
         scaler.scale(loss).backward()
         
@@ -139,8 +145,10 @@ if __name__ == '__main__':
             # Log Train Metrics instantly
             wandb.log({
                 "train/loss": loss_val,
-                "train/lr": curr_lr,
-                "train/step": step + 1
+                "train/loss_class": l_cls.item(),
+                "train/loss_reg": l_reg.item(),
+                "train/step": step + 1,
+                "lr/head": scheduler.get_last_lr()[1]
             }, step=step+1)
             
             if (step + 1) % 10 == 0:

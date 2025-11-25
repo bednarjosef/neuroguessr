@@ -107,30 +107,29 @@ class Evaluator:
                 labels = labels.to(self.device)
                 
                 # Inference
-                outputs = model(imgs) # shape: [Batch, Num_Classes]
+                logits, coords = model(imgs) # shape: [Batch, Num_Classes]
                 
                 # --- ACCURACY CALCS ---
                 # Top-1
-                _, preds = torch.max(outputs, 1)
+                _, preds = torch.max(logits, 1)
                 correct_top1 += (preds == labels).sum().item()
                 
                 # Top-5
                 # Get the indices of the top 5 predictions
                 # top5_preds shape: [Batch, 5]
-                _, top5_preds = outputs.topk(5, 1, True, True)
+                _, top5_preds = logits.topk(5, 1, True, True)
                 # Check if true label is in those 5 columns
                 correct_top5 += (top5_preds == labels.unsqueeze(1)).sum().item()
                 
                 total_samples += labels.size(0)
                 
                 # --- DISTANCE CALCS ---
-                # Decode Predictions (Cluster ID -> Lat/Lon) using Top-1
-                pred_centers = self.centers_gpu[preds]
-                z = pred_centers[:, 2]
-                y = pred_centers[:, 1]
-                x = pred_centers[:, 0]
-                pred_lats = torch.rad2deg(torch.asin(z)).cpu().numpy()
-                pred_lons = torch.rad2deg(torch.atan2(y, x)).cpu().numpy()
+                pred_xyz = coords.cpu().numpy()
+                z = pred_xyz[:, 2]
+                y = pred_xyz[:, 1]
+                x = pred_xyz[:, 0]
+                pred_lats = np.degrees(np.arcsin(z))
+                pred_lons = np.degrees(np.arctan2(y, x))
                 
                 # Calculate Distances
                 dists = self.haversine(true_lats.numpy(), true_lons.numpy(), pred_lats, pred_lons)

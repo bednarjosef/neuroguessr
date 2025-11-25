@@ -59,12 +59,20 @@ class ClusterDataset(IterableDataset):
                 # 3. Calculate Label (The heavy lifting)
                 label = self.get_closest_cluster(lat, lon)
 
-                # 4. Transform Image
+                # 4. Calculate True XYZ (For Regression)
+                lat_rad = np.deg2rad(lat)
+                lon_rad = np.deg2rad(lon)
+                x = np.cos(lat_rad) * np.cos(lon_rad)
+                y = np.cos(lat_rad) * np.sin(lon_rad)
+                z = np.sin(lat_rad)
+                true_xyz = torch.tensor([x, y, z], dtype=torch.float32)
+
+                # 5. Transform Image
                 img_tensor = self.transform(img.convert("RGB"))
                 
-                # 5. Yield based on mode
+                # 6. Yield based on mode
                 if self.mode == 'train':
-                    yield img_tensor, label
+                    yield img_tensor, label, true_xyz
                 else:
                     # For Eval, we need the raw lat/lon to calculate km error later
                     yield img_tensor, label, lat, lon

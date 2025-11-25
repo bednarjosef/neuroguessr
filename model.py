@@ -1,6 +1,7 @@
 import timm
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import timm
 
 class GeoguessrModel(nn.Module):
@@ -30,13 +31,23 @@ class GeoguessrModel(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(2048, num_classes)
         )
+
+        self.regressor = nn.Sequential(
+            nn.Linear(self.input_dim, 1024),
+            nn.GELU(),
+            nn.Dropout(0.3),
+            nn.Linear(1024, 3) # x, y, z
+        )
         
         print(f"Model initialized. Backbone frozen. Head input dim: {self.input_dim}, Output classes: {num_classes}")
 
     def forward(self, x):
         features = self.backbone(x)        
         logits = self.classifier(features)
-        return logits
+        coords = self.regressor(features)
+        
+        coords = F.normalize(coords, p=2, dim=1)
+        return logits, coords
     
     def train(self, mode=True):
         super().train(mode)
