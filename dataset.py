@@ -1,3 +1,4 @@
+import datetime
 import torch
 from torch.utils.data import IterableDataset, DataLoader
 import webdataset as wds
@@ -57,25 +58,23 @@ class ClusterDataset(IterableDataset):
                     continue
 
                 # 3. Calculate Label (The heavy lifting)
-                label = self.get_closest_cluster(lat, lon)
+                cluster_label = self.get_closest_cluster(lat, lon)
+                climate_label = int(meta.get('climate', -1))
+                land_label = int(meta.get('land_cover', -1))
+                soil_label = int(meta.get('soil', -1))
+                
+                ts = meta.get('captured_at')
+                if ts:
+                    month_label = datetime.datetime.fromtimestamp(ts / 1000.0).month  # - 1
+                else:
+                    month_label = -1
 
-                # 4. Calculate True XYZ (For Regression)
-                lat_rad = np.deg2rad(lat)
-                lon_rad = np.deg2rad(lon)
-                x = np.cos(lat_rad) * np.cos(lon_rad)
-                y = np.cos(lat_rad) * np.sin(lon_rad)
-                z = np.sin(lat_rad)
-                true_xyz = torch.tensor([x, y, z], dtype=torch.float32)
-
-                # 5. Transform Image
                 img_tensor = self.transform(img.convert("RGB"))
                 
-                # 6. Yield based on mode
                 if self.mode == 'train':
-                    yield img_tensor, label, true_xyz
+                    yield img_tensor, cluster_label, climate_label, land_label, soil_label, month_label
                 else:
-                    # For Eval, we need the raw lat/lon to calculate km error later
-                    yield img_tensor, label, lat, lon
+                    yield img_tensor, cluster_label, climate_label, land_label, soil_label, month_label
                     
             except Exception:
                 continue

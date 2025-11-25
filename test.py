@@ -19,7 +19,9 @@ for i, sample in enumerate(ds):
     country = meta['country']
     latitude = meta['latitude']
     longitude = meta['longitude']
+    
+    print(meta)
 
-    print(f"Sample {i}: Country={country} | Latitude={latitude} | Longitude={longitude}")
+    # print(f"Sample {i}: Country={country} | Latitude={latitude} | Longitude={longitude}")
     if i >= 4:
         break

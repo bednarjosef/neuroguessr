@@ -28,6 +28,14 @@ LAMBDA_CLS = 1.0
 LAMBDA_REG = 30.0
 PROJECT_NAME = "neuroguessr"
 
+
+# MULTITASK WEIGHTS
+W_LOC = 1.0
+W_CLIM = 0.2
+W_LAND = 0.2
+W_SOIL = 0.2
+W_MONTH = 0.1
+
 if __name__ == '__main__':
     torch.set_float32_matmul_precision('high')
     
@@ -38,17 +46,19 @@ if __name__ == '__main__':
             "batch_size": MICRO_BATCH_SIZE * ACCUM_STEPS,
             "lr": LEARNING_RATE,
             "clusters": NUM_CLUSTERS,
-            "steps": STEPS
+            "steps": STEPS,
+            "sigma": SIGMA_KM,
+            "weights": [W_LOC, W_CLIM, W_LAND, W_SOIL, W_MONTH],
         }
     )
 
     # 2. Setup Clusters & Model
     cluster_manager = ClusterManager(n_clusters=NUM_CLUSTERS)
     try:
-        cluster_centers, loss_weights = cluster_manager.load(device=DEVICE)
+        cluster_centers, _loss_weights = cluster_manager.load(device=DEVICE)
     except FileNotFoundError:
-        cluster_centers, loss_weights = cluster_manager.generate()
-        loss_weights = loss_weights.to(DEVICE)
+        cluster_centers, _loss_weights = cluster_manager.generate()
+        # _loss_weights = _loss_weights.to(DEVICE)
 
     soft_targets_matrix = cluster_manager.generate_soft_targets(sigma_km=SIGMA_KM)
     soft_targets_matrix = soft_targets_matrix.to(DEVICE)
@@ -107,28 +117,50 @@ if __name__ == '__main__':
         total_steps=STEPS, 
         pct_start=0.1
     )
-    
-    crit_cls = nn.CrossEntropyLoss(label_smoothing=0.1)
-    crit_reg = nn.MSELoss()
+
+
+    crit_cluster = nn.CrossEntropyLoss()  # label_smoothing=0.1
+    crit_climate = nn.CrossEntropyLoss(ignore_index=-1)
+    crit_land = nn.CrossEntropyLoss(ignore_index=-1)
+    crit_soil = nn.CrossEntropyLoss(ignore_index=-1)
+    crit_month = nn.CrossEntropyLoss(ignore_index=-1)
+
     scaler = torch.amp.GradScaler('cuda')
 
     print("--- TRAINING START ---")
     model.train()
     optimizer.zero_grad()
 
-    for step, (imgs, labels, true_xyz) in enumerate(train_loader):
+    for step, batch in enumerate(train_loader):
         if step >= (STEPS * ACCUM_STEPS):
             break
 
-        imgs, labels, true_xyz = imgs.to(DEVICE, non_blocking=True), labels.to(DEVICE, non_blocking=True), true_xyz.to("cuda")
-        target_probs = soft_targets_matrix[labels]
+        imgs = batch[0].to(DEVICE, non_blocking=True)
+        lbl_cluster = batch[1].to(DEVICE, non_blocking=True)
+        lbl_climate = batch[2].to(DEVICE, non_blocking=True)
+        lbl_land = batch[3].to(DEVICE, non_blocking=True)
+        lbl_soil = batch[4].to(DEVICE, non_blocking=True)
+        lbl_month = batch[5].to(DEVICE, non_blocking=True)
+
+        target_probs = soft_targets_matrix[lbl_cluster]
         
         with torch.amp.autocast('cuda'):
-            logits, coords = model(imgs)
+            out_cluster, out_climate, out_land, out_soil, out_month = model(imgs)
 
-            l_cls = crit_cls(logits, labels)
-            l_reg = crit_reg(coords, true_xyz)
-            loss = ((LAMBDA_CLS * l_cls) + (LAMBDA_REG * l_reg)) / ACCUM_STEPS
+            loss_cluster = crit_cluster(out_cluster, target_probs)
+            loss_climate = crit_climate(out_climate, lbl_climate)
+            loss_land = crit_land(out_land, lbl_land)
+            loss_soil = crit_soil(out_soil, lbl_soil)
+            loss_month = crit_month(out_month, lbl_month)
+
+            # weighted loss
+            loss = (W_LOC * loss_cluster) + \
+                   (W_CLIM * loss_climate) + \
+                   (W_LAND * loss_land) + \
+                   (W_SOIL * loss_soil) + \
+                   (W_MONTH * loss_month)
+            
+            loss = loss / ACCUM_STEPS
         
         scaler.scale(loss).backward()
         
@@ -142,29 +174,27 @@ if __name__ == '__main__':
             curr_lr = scheduler.get_last_lr()[0]
             loss_val = loss.item() * ACCUM_STEPS
             
-            # Log Train Metrics instantly
             wandb.log({
-                "train/loss": loss_val,
-                "train/loss_class": l_cls.item(),
-                "train/loss_reg": l_reg.item(),
-                "train/step": step + 1,
-                "lr/head": scheduler.get_last_lr()[1]
+                "loss/total": loss.item() * ACCUM_STEPS,
+                "loss/cluster": loss_cluster.item(),
+                "loss/clim": loss_climate.item(),
+                "loss/land": loss_land.item(),
+                "loss/soil": loss_soil.item(),
+                "loss/month": loss_month.item(),
+                "lr/head": scheduler.get_last_lr()[1],
             }, step=step+1)
             
             if (step + 1) % 10 == 0:
                  print(f"Step {step+1}/{STEPS} | Loss: {loss_val:.6f}")
 
-            # --- VALIDATION ---
+            # --- EVAL ---
             if evaluator and (((step + 1) % EVAL_INTERVAL == 0) or step == 0):
-                # Get metrics dict (mean_km, median_km, geo_score)
-                val_metrics = evaluator.run(model)
-                
-                # Log Validation Metrics to WandB
-                wandb.log(val_metrics, step=step+1)
+                metrics = evaluator.run(model)
+                wandb.log(metrics, step=step+1)
                 
                 # Save Checkpoint
                 torch.save(model.state_dict(), f"checkpoint_last.pth")
 
-    torch.save(model.state_dict(), "geoguessr_cluster_1k_soft.pth")
+    torch.save(model.state_dict(), "geoguessr_multitask_1.pth")
     wandb.finish()
     print("Training Complete.")
