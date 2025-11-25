@@ -7,7 +7,7 @@ import wandb
 
 from model import GeoguessrModel
 from clusters import ClusterManager
-from dataset import create_dataloader
+from dataset import create_dataloader, get_geo_transforms
 from evaluator import Evaluator 
 
 # --- CONFIG ---
@@ -70,14 +70,18 @@ if __name__ == '__main__':
         
     model = GeoguessrModel(num_classes=NUM_CLUSTERS).to(DEVICE)
     model = torch.compile(model)
+
+    model_config = model.get_config()
+    geo_transforms = get_geo_transforms(model_config, is_training=True)
     
     train_loader = create_dataloader(
         tar_files=tar_files,
-        model_config=model.get_config(),
+        model_config=model_config,
         cluster_centers=cluster_centers,
         batch_size=MICRO_BATCH_SIZE,
         workers=NUM_WORKERS,
-        mode='train'
+        mode='train',
+        custom_transform=geo_transforms,
     )
     
     # 3. Initialize Evaluator

@@ -5,6 +5,39 @@ import webdataset as wds
 import numpy as np
 import timm
 from clusters import TARGET_COUNTRIES
+from torchvision import transforms
+
+from torchvision import transforms
+
+def get_geo_transforms(model_config, is_training=True):
+    mean = model_config['mean']
+    std = model_config['std']
+    
+    if is_training:
+        return transforms.Compose([
+            # 1. Resize small edge to 256 (keep aspect ratio)
+            transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+            # 2. Random Crop (But conservative! 80% to 100% of image)
+            # This prevents the "Zoomed in Grass" problem
+            transforms.RandomResizedCrop(
+                size=(336, 336), 
+                scale=(0.8, 1.0), # <--- CRITICAL FIX: Only crop large chunks
+                ratio=(0.9, 1.1),
+                interpolation=transforms.InterpolationMode.BICUBIC
+            ),
+            # 3. Color Jitter (Helpful for weather generalization)
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
+    else:
+        # Eval: Standard Center Crop
+        return transforms.Compose([
+            transforms.Resize(256, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ])
 
 class ClusterDataset(IterableDataset):
     def __init__(self, tar_paths, transform, cluster_centers, mode='train'):
@@ -88,9 +121,13 @@ class ClusterDataset(IterableDataset):
             except Exception:
                 continue
 
-def create_dataloader(tar_files, model_config, cluster_centers, batch_size, workers, mode='train'):
-    is_training = (mode == 'train')
-    transforms = timm.data.create_transform(**model_config, is_training=is_training)
+def create_dataloader(tar_files, model_config, cluster_centers, batch_size, workers, mode='train', custom_transform=None):
+    if custom_transform:
+        transforms = custom_transform
+    else:
+        # Fallback to the default broken one (don't use this path)
+        is_training = (mode == 'train')
+        transforms = timm.data.create_transform(**model_config, is_training=is_training)
     
     dataset = ClusterDataset(
         tar_paths=tar_files,
