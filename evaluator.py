@@ -33,6 +33,15 @@ class LocalValDataset(Dataset):
                     clim = int(meta.get('climate', -1))
                     land = int(meta.get('land_cover', -1))
                     soil = int(meta.get('soil', -1))
+
+                    if clim < 0 or clim >= 31: 
+                        clim = -1
+
+                    if land < 0 or land >= 11:
+                        land = -1
+
+                    if soil < 0 or soil >= 15:
+                        soil = -1
                     
                     # Parse Month
                     ts = meta.get('captured_at')

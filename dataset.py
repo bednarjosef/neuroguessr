@@ -62,6 +62,15 @@ class ClusterDataset(IterableDataset):
                 climate_label = int(meta.get('climate', -1))
                 land_label = int(meta.get('land_cover', -1))
                 soil_label = int(meta.get('soil', -1))
+
+                if climate_label < 0 or climate_label >= 31: 
+                    climate_label = -1
+
+                if land_label < 0 or land_label >= 11:
+                    land_label = -1
+
+                if soil_label < 0 or soil_label >= 15:
+                    soil_label = -1
                 
                 ts = meta.get('captured_at')
                 if ts:

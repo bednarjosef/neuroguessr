@@ -32,10 +32,10 @@ class GeoguessrModel(nn.Module):
             nn.Linear(2048, num_classes)
         )
 
-        self.climate_head = nn.Linear(self.input_dim, 33)  # 32 climate classes
-        self.land_cover_head = nn.Linear(self.input_dim, 18)
-        self.soil_head = nn.Linear(self.input_dim, 33)
-        self.month_head = nn.Linear(self.input_dim, 12)
+        self.climate_head = nn.Linear(self.input_dim, 31)  # 31 climate classes
+        self.land_cover_head = nn.Linear(self.input_dim, 11)  # 11 classes
+        self.soil_head = nn.Linear(self.input_dim, 15)  # 15 classes
+        self.month_head = nn.Linear(self.input_dim, 12)  # 12 classes
         
         print(f"Model initialized. Backbone frozen. Head input dim: {self.input_dim}, Output classes: {num_classes}")
 
