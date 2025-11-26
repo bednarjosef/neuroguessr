@@ -52,13 +52,13 @@ class GeoguessrModel(nn.Module):
             nn.Linear(self.embed_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.GELU(),
-            nn.Dropout(0.5),
+            nn.Dropout(0.2),
             
             # Deep Layer 1
-            ResBlock(hidden_dim, dropout=0.5),
+            ResBlock(hidden_dim, dropout=0.2),
             
             # Deep Layer 2
-            ResBlock(hidden_dim, dropout=0.5),
+            ResBlock(hidden_dim, dropout=0.2),
             
             # Output Layer
             nn.Linear(hidden_dim, n_classes)

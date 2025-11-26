@@ -16,7 +16,7 @@ VAL_CACHE_DIR = "./val_cache"
 MICRO_BATCH_SIZE = 1024
 ACCUM_STEPS = 1
 LEARNING_RATE = 1e-4
-STEPS = 1000
+STEPS = 4000
 EVAL_INTERVAL = 100
 DEVICE = "cuda"
 NUM_WORKERS = 12
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     optimizer = optim.AdamW([
         {'params': backbone_params, 'lr': LR_BACKBONE},
         {'params': head_params, 'lr': LR_HEAD}
-    ], weight_decay=0.05)
+    ])
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, 
