@@ -78,15 +78,15 @@ class OSV5MDataset(IterableDataset):
         self.max_samples = max_samples
 
     def __iter__(self) -> Iterator[Dict]:
-        pipeline = wds.DataPipeline(wds.SimpleShardList(self.shards))
+        dataset = wds.WebDataset(self.shards, resampled=False)
         if self.shuffle:
-            pipeline = pipeline.shuffle(self.shuffle)
-        pipeline = pipeline.decode("pil").to_tuple("jpg;png", "json")
+            dataset = dataset.shuffle(self.shuffle)
+        dataset = dataset.decode("pil").to_tuple("jpg;png", "json")
         if self.max_samples:
-            pipeline = pipeline.slice(self.max_samples)
+            dataset = dataset.slice(self.max_samples)
 
         def filtered() -> Iterator[Dict]:
-            for img, meta_blob in pipeline:
+            for img, meta_blob in dataset:
                 meta = _decode_metadata(meta_blob)
                 country = meta.get("country")
                 if self.countries and country not in self.countries:
