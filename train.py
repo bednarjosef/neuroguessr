@@ -43,7 +43,7 @@ def train():
     # init clusters
     cluster_centers = get_clusters(CONFIG)
     cluster_labels = get_cluster_labels(CONFIG, cluster_centers)
-    cluster_labels.to(CONFIG['device'])
+    cluster_labels = cluster_labels.to(CONFIG['device'])
 
     # init model
     model = GeoGuessrViT(CONFIG).to(CONFIG['device'])

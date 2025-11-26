@@ -20,7 +20,7 @@ class ClusterDataset(IterableDataset):
         return tar_files
 
     def __iter__(self):
-        dataset = wds.WebDataset(self.tar_files, resampled=True, shardshuffle=True, handler=wds.warn_and_continue).shuffle(10000).decode('pil').to_tuple('jpg', 'json')
+        dataset = wds.WebDataset(self.tar_files, shardshuffle=100, handler=wds.warn_and_continue).shuffle(5000).decode('pil').to_tuple('jpg', 'json')
         for img, meta in dataset:
             try:
                 country = meta.get('country')
