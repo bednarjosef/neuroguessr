@@ -8,8 +8,8 @@ from dataset import create_dataloader
 from evaluator import Evaluator
 import wandb
 
-tar_directory = 'osv5m_local'
-val_directory = 'val_cache_3'
+tar_directory = '/workspace/neuroguessr/osv5m_local_data/train'
+val_directory = '/workspace/neuroguessr/val_cache_3'
 
 countries = [
     'AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG', 'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI', 'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL', 'IT', 'JP', 'JO', 'KE', 'KG', 'LV', 'LB', 'LS', 'LI', 'LT', 'LU', 'MY', 'MX', 'MN', 'ME', 'NA', 'NL', 'NZ', 'NG', 'MK', 'NO', 'OM', 'PS', 'PA', 'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS', 'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR', 'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN',
@@ -32,12 +32,6 @@ CONFIG = {
 
 
 def train():
-    # init wandb
-    wandb.init(
-        project="neuroguessr",
-        config=CONFIG
-    )
-
     torch.set_float32_matmul_precision('high')
 
     # init clusters
@@ -88,6 +82,12 @@ def train():
 
     criterion_cluster = nn.CrossEntropyLoss()
     scaler = torch.amp.GradScaler('cuda')
+
+    # init wandb
+    wandb.init(
+        project="neuroguessr",
+        config=CONFIG
+    )
 
     # train
     model.train()

@@ -20,7 +20,7 @@ class ClusterDataset(IterableDataset):
         return tar_files
 
     def __iter__(self):
-        dataset = wds.WebDataset(self.tar_files, shardshuffle=100, handler=wds.warn_and_continue).shuffle(5000).decode('pil').to_tuple('jpg', 'json')
+        dataset = wds.WebDataset(self.tar_files, shardshuffle=100, handler=wds.warn_and_continue).shuffle(10000).decode('pil').to_tuple('jpg', 'json')
         for img, meta in dataset:
             try:
                 country = meta.get('country')
@@ -31,7 +31,7 @@ class ClusterDataset(IterableDataset):
                 if lat is None or lon is None:
                     continue
 
-                cluster_label = get_closest_cluster(lat, lon)
+                cluster_label = get_closest_cluster(lat, lon, self.cluster_centers)
                 
                 img_tensor = self.transform(img.convert("RGB"))
                 yield img_tensor, cluster_label
