@@ -151,7 +151,7 @@ class Evaluator:
                 # lbl_month = batch[7].to(self.device)
                 
                 # Forward
-                out_loc, out_clim, out_land, out_soil, out_month = model(imgs)
+                out_loc = model(imgs)  # , out_clim, out_land, out_soil, out_month
                 
                 # --- ACCURACY METRICS ---
                 
