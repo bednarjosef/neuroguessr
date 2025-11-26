@@ -5,6 +5,7 @@ Uses MiniBatchKMeans over 3D Cartesian coordinates on the unit sphere to
 obtain roughly uniform geographic clusters. Artifacts are saved to NPZ so
 training/eval can reuse cluster centroids without recomputing.
 """
+import csv
 import json
 import math
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import Iterable, Iterator, List, Tuple
 
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
+from huggingface_hub import hf_hub_download
 
 EARTH_RADIUS_KM = 6371.0088
 
@@ -108,11 +110,27 @@ def iter_coords_from_jsonl(path: str | Path) -> Iterator[Tuple[float, float]]:
             yield float(row["lat"]), float(row["lon"])
 
 
+def iter_coords_from_csv(path: str | Path) -> Iterator[Tuple[float, float]]:
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            lat = row.get("lat") or row.get("latitude")
+            lon = row.get("lon") or row.get("longitude")
+            if lat is None or lon is None:
+                continue
+            yield float(lat), float(lon)
+
+
 def _parse_args():
     import argparse
 
     parser = argparse.ArgumentParser(description="Fit geographic clusters from metadata.")
-    parser.add_argument("--metadata", type=str, required=True, help="Path to JSONL containing lat/lon fields.")
+    parser.add_argument(
+        "--metadata",
+        type=str,
+        default=None,
+        help="Local path to JSONL/CSV containing lat/lon fields. If omitted, train.csv is fetched from osv5m/osv5m.",
+    )
     parser.add_argument("--n_clusters", type=int, default=1024, help="Number of geographic clusters.")
     parser.add_argument("--batch_size", type=int, default=4096, help="MiniBatchKMeans batch size.")
     parser.add_argument("--max_iter", type=int, default=200, help="KMeans iterations.")
@@ -123,7 +141,13 @@ def _parse_args():
 
 if __name__ == "__main__":
     args = _parse_args()
-    coords = iter_coords_from_jsonl(args.metadata)
+    if args.metadata is None:
+        csv_path = hf_hub_download(repo_id="osv5m/osv5m", filename="train.csv", repo_type="dataset")
+        coords = iter_coords_from_csv(csv_path)
+    elif args.metadata.endswith(".csv"):
+        coords = iter_coords_from_csv(args.metadata)
+    else:
+        coords = iter_coords_from_jsonl(args.metadata)
     fit_clusters(
         coords=coords,
         n_clusters=args.n_clusters,
