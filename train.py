@@ -36,8 +36,8 @@ def train():
 
     # init clusters
     cluster_centers = get_clusters(CONFIG)
-    cluster_labels = get_cluster_labels(CONFIG, cluster_centers)
-    cluster_labels = cluster_labels.to(CONFIG['device'])
+    # cluster_labels = get_cluster_labels(CONFIG, cluster_centers)
+    # cluster_labels = cluster_labels.to(CONFIG['device'])
 
     # init model
     model = GeoGuessrViT(CONFIG).to(CONFIG['device'])
@@ -98,11 +98,11 @@ def train():
             break
         images = batch[0].to(CONFIG['device'], non_blocking=True)
         cluster_label = batch[1].to(CONFIG['device'], non_blocking=True)
-        target_probs = cluster_labels[cluster_label]
+        # target_probs = cluster_labels[cluster_label]
 
         with torch.amp.autocast('cuda'):
             predicted_clusters = model(images)
-            loss_clusters = criterion_cluster(predicted_clusters, target_probs)
+            loss_clusters = criterion_cluster(predicted_clusters, cluster_label)  # target_probs
             loss = loss_clusters / CONFIG['accum_steps']
 
         scaler.scale(loss).backward()
@@ -118,14 +118,19 @@ def train():
             curr_lr_head = scheduler.get_last_lr()[1]
             loss_val = loss.item() * CONFIG['accum_steps']
 
+            with torch.no_grad():
+                preds = predicted_clusters.argmax(dim=1)
+                train_acc = (preds == cluster_label).float().mean().item() * 100
+
             wandb.log({
                 "loss/total": loss_val,
                 "lr/backbone": curr_lr_backbone,
                 "lr/head": curr_lr_head,
+                "train/acc_top1": train_acc,
             }, step=step+1)
 
             if (step + 1) % 10 == 0:
-                print(f"Step {step+1}/{CONFIG['steps'] * CONFIG['accum_steps']} | Loss: {loss_val:.6f}")
+                print(f"Step {step+1}/{CONFIG['steps'] * CONFIG['accum_steps']} | Loss: {loss_val:.6f} | Train acc: {train_acc:.2f}%")
             
             # evaluate
             if evaluator and (((step + 1) % CONFIG['eval_interval'] == 0) or step == 0):
