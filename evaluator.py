@@ -127,7 +127,7 @@ class Evaluator:
         # 5. Calculate Distance
         return self.haversine(true_lats.numpy(), true_lons.numpy(), pred_lats, pred_lons)
 
-    def run(self, model):
+    def run(self, model, seen_clusters=None):
         model.eval()
         
         # Distance containers
@@ -150,6 +150,20 @@ class Evaluator:
                 # lbl_soil = batch[6].to(self.device)
                 # lbl_month = batch[7].to(self.device)
                 
+                if seen_clusters is not None:
+                    labels_np = lbl_loc.cpu().numpy()               # [B]
+                    keep_np = seen_clusters[labels_np]             # [B] bool
+                    if not keep_np.any():
+                        continue  # nothing in this batch is from seen clusters
+
+                    keep_gpu = torch.from_numpy(keep_np).to(self.device)
+                    imgs = imgs[keep_gpu]
+                    lbl_loc = lbl_loc[keep_gpu]
+
+                    keep_cpu = torch.from_numpy(keep_np).bool()    # CPU mask
+                    true_lats = true_lats[keep_cpu]
+                    true_lons = true_lons[keep_cpu]
+
                 # Forward
                 out_loc = model(imgs)  # , out_clim, out_land, out_soil, out_month
                 

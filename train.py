@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -93,11 +94,14 @@ def train():
     model.train()
     optimizer.zero_grad()
     best_median_km = float('inf')
+    seen_clusters = np.zeros(CONFIG['clusters'], dtype=bool)
+
     for step, batch in enumerate(train_loader):
         if step >= (CONFIG['steps'] * CONFIG['accum_steps']):
             break
         images = batch[0].to(CONFIG['device'], non_blocking=True)
         cluster_label = batch[1].to(CONFIG['device'], non_blocking=True)
+        seen_clusters[cluster_label.cpu().numpy()] = True
         # target_probs = cluster_labels[cluster_label]
 
         with torch.amp.autocast('cuda'):
@@ -121,12 +125,15 @@ def train():
             with torch.no_grad():
                 preds = predicted_clusters.argmax(dim=1)
                 train_acc = (preds == cluster_label).float().mean().item() * 100
-
+                num_seen = int(seen_clusters.sum())
+                
+            
             wandb.log({
                 "loss/total": loss_val,
                 "lr/backbone": curr_lr_backbone,
                 "lr/head": curr_lr_head,
                 "train/acc_top1": train_acc,
+                "train/seen_clusters": num_seen,
             }, step=step+1)
 
             if (step + 1) % 10 == 0:
@@ -134,7 +141,7 @@ def train():
             
             # evaluate
             if evaluator and (((step + 1) % CONFIG['eval_interval'] == 0) or step == 0):
-                metrics = evaluator.run(model)
+                metrics = evaluator.run(model, seen_clusters)
                 wandb.log(metrics, step=step+1)
 
                 current_median = metrics['val/top1_median_km']
