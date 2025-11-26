@@ -13,7 +13,7 @@ from evaluator import Evaluator
 # --- CONFIG ---
 LOCAL_DATA_DIR = "./osv5m_local_data"
 VAL_CACHE_DIR = "./val_cache"
-MICRO_BATCH_SIZE = 256
+MICRO_BATCH_SIZE = 1024
 ACCUM_STEPS = 1
 LEARNING_RATE = 1e-4
 STEPS = 1000
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     optimizer = optim.AdamW([
         {'params': backbone_params, 'lr': LR_BACKBONE},
         {'params': head_params, 'lr': LR_HEAD}
-    ])
+    ], weight_decay=0.05)
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, 
@@ -134,7 +134,7 @@ if __name__ == '__main__':
     print("--- TRAINING START ---")
     model.train()
     optimizer.zero_grad()
-
+    best_median_km = float('inf')
     for step, batch in enumerate(train_loader):
         if step >= (STEPS * ACCUM_STEPS):
             break
@@ -195,10 +195,19 @@ if __name__ == '__main__':
             if evaluator and (((step + 1) % EVAL_INTERVAL == 0) or step == 0):
                 metrics = evaluator.run(model)
                 wandb.log(metrics, step=step+1)
-                
-                # Save Checkpoint
-                torch.save(model.state_dict(), f"checkpoint_last.pth")
 
-    torch.save(model.state_dict(), "geoguessr_multitask_1.pth")
+                current_median = metrics['val/top1_median_km']
+                
+                # save latest
+                torch.save(model.state_dict(), f"checkpoint_last.pth")
+                
+                # save best
+                if current_median < best_median_km:
+                    best_median_km = current_median
+                    torch.save(model.state_dict(), "geoguessr_best.pth")
+                    print(f"🔥 New Best Model! Median Error: {best_median_km:.0f} km")
+
+
+    torch.save(model.state_dict(), "geoguessr_multitask_5k_steps.pth")
     wandb.finish()
     print("Training Complete.")

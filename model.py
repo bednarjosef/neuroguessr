@@ -24,7 +24,7 @@ class ResBlock(nn.Module):
     
 
 class GeoguessrModel(nn.Module):
-    def __init__(self, n_classes, model_name='tiny_vit_21m_512.dist_in22k_ft_in1k', pretrained=True):
+    def __init__(self, n_classes, model_name='vit_base_patch16_clip_224.openai', pretrained=True):
         super().__init__()
         print(f"Loading backbone: {model_name}...")
         self.backbone = timm.create_model(model_name, pretrained=pretrained, num_classes=0)  # global_pool=''
@@ -52,13 +52,13 @@ class GeoguessrModel(nn.Module):
             nn.Linear(self.embed_dim, hidden_dim),
             nn.BatchNorm1d(hidden_dim),
             nn.GELU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.5),
             
             # Deep Layer 1
-            ResBlock(hidden_dim, dropout=0.2),
+            ResBlock(hidden_dim, dropout=0.5),
             
             # Deep Layer 2
-            ResBlock(hidden_dim, dropout=0.2),
+            ResBlock(hidden_dim, dropout=0.5),
             
             # Output Layer
             nn.Linear(hidden_dim, n_classes)
@@ -74,6 +74,16 @@ class GeoguessrModel(nn.Module):
     def forward(self, x):
         features = self.backbone.forward_features(x)
 
+        if features.dim() == 4:
+            # Ensure shape is [B, Dim, H, W] -> Permute to [B, H, W, Dim]
+            # If TinyViT returns [B, C, H, W], we permute.
+            # Check timm doc, but usually it's channels first.
+            
+            # Flatten H*W into Sequence Length
+            # [B, C, H, W] -> [B, C, H*W] -> [B, H*W, C]
+            B, C, H, W = features.shape
+            features = features.view(B, C, -1).permute(0, 2, 1)
+        
         b_size = features.shape[0]
         query = self.query_token.expand(b_size, -1, -1)
         attn_output, _ = self.attention_pool(query, features, features)
