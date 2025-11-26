@@ -93,7 +93,11 @@ class OSV5MDataset(IterableDataset):
                 country = meta.get("country")
                 if self.countries and country not in self.countries:
                     continue
-                lat, lon = float(meta["lat"]), float(meta["lon"])
+                lat_val = meta.get("lat") or meta.get("latitude")
+                lon_val = meta.get("lon") or meta.get("longitude")
+                if lat_val is None or lon_val is None:
+                    continue
+                lat, lon = float(lat_val), float(lon_val)
                 target = meta.get("cluster_id")
                 if self.clusterer is not None:
                     target = self.clusterer.assign((lat, lon))
