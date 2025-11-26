@@ -4,6 +4,7 @@ import torch.optim as optim
 import torch.nn as nn
 
 from model import GeoGuessrViT
+from model_vit_large import GeoguessrViTLarge
 from clusters import get_clusters, get_cluster_labels
 from dataset import create_dataloader
 from evaluator import Evaluator
@@ -28,7 +29,8 @@ CONFIG = {
     'batch_size': 256,
     'accum_steps': 1,
     'clusters': 200,
-    'sigma_km': 300
+    'sigma_km': 300,
+    'model': 'vit_large_patch14_clip_336.laion2b_ft_in12k_in1k'
 }
 
 
@@ -41,7 +43,7 @@ def train():
     # cluster_labels = cluster_labels.to(CONFIG['device'])
 
     # init model
-    model = GeoGuessrViT(CONFIG).to(CONFIG['device'])
+    model = GeoguessrViTLarge(CONFIG).to(CONFIG['device'])
     model = torch.compile(model)
     transform = model.transform
 
@@ -59,18 +61,17 @@ def train():
         if not param.requires_grad:
             continue
 
-        # adjust these conditions to your model
-        if "fc" in name or "head" in name:
-            head_params.append(param)
-        else:
+        if name.startswith("backbone."):
             backbone_params.append(param)
+        else:
+            head_params.append(param)
 
     optimizer = optim.AdamW(
         [
             {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
             {"params": head_params, "lr": CONFIG['max_lr_head']},
         ],
-        weight_decay=0.01,
+        # weight_decay=0.01,
     )
 
     # lr scheduler
