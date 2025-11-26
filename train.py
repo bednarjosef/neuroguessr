@@ -23,10 +23,10 @@ CONFIG = {
     'eval_interval': 100,
     'countries': countries,
     'num_countries': len(countries),
-    'steps': 1000,
+    'steps': 5000,
     'max_lr_backbone': 5e-6,
     'max_lr_head': 1e-4,
-    'batch_size': 256,
+    'batch_size': 512,
     'accum_steps': 1,
     'clusters': 200,
     'sigma_km': 300,
@@ -39,8 +39,8 @@ def train():
 
     # init clusters
     cluster_centers = get_clusters(CONFIG)
-    # cluster_labels = get_cluster_labels(CONFIG, cluster_centers)
-    # cluster_labels = cluster_labels.to(CONFIG['device'])
+    cluster_labels = get_cluster_labels(CONFIG, cluster_centers)
+    cluster_labels = cluster_labels.to(CONFIG['device'])
 
     # init model
     model = GeoguessrViTLarge(CONFIG).to(CONFIG['device'])
@@ -77,11 +77,16 @@ def train():
     )
 
     # lr scheduler
-    scheduler = optim.lr_scheduler.OneCycleLR(
+    # scheduler = optim.lr_scheduler.OneCycleLR(
+    #     optimizer,
+    #     max_lr=[CONFIG['max_lr_backbone'], CONFIG['max_lr_head']],
+    #     steps_per_epoch=CONFIG['steps'],
+    #     epochs=1,
+    # )
+
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        max_lr=[CONFIG['max_lr_backbone'], CONFIG['max_lr_head']],
-        steps_per_epoch=CONFIG['steps'],
-        epochs=1,
+        T_max=CONFIG["steps"],
     )
 
     criterion_cluster = nn.CrossEntropyLoss()
@@ -105,11 +110,11 @@ def train():
         images = batch[0].to(CONFIG['device'], non_blocking=True)
         cluster_label = batch[1].to(CONFIG['device'], non_blocking=True)
         seen_clusters[cluster_label.cpu().numpy()] = True
-        # target_probs = cluster_labels[cluster_label]
+        target_probs = cluster_labels[cluster_label]
 
         with torch.amp.autocast('cuda'):
             predicted_clusters = model(images)
-            loss_clusters = criterion_cluster(predicted_clusters, cluster_label)  # target_probs
+            loss_clusters = criterion_cluster(predicted_clusters, target_probs)  # cluster_label
             loss = loss_clusters / CONFIG['accum_steps']
 
         scaler.scale(loss).backward()
