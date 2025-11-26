@@ -45,13 +45,15 @@ def train():
     # init model
     model = GeoguessrViTLarge(CONFIG).to(CONFIG['device'])
     model = torch.compile(model)
-    transform = model.transform
+
+    train_transform = model.train_transform
+    eval_transform = model.eval_transform
 
     # data loader
-    train_loader = create_dataloader(CONFIG, tar_directory, cluster_centers, transform, workers=12)
+    train_loader = create_dataloader(CONFIG, tar_directory, cluster_centers, train_transform, workers=12)
 
     # evaluator
-    evaluator = Evaluator(CONFIG, cluster_centers, transform, val_directory)
+    evaluator = Evaluator(CONFIG, cluster_centers, eval_transform, val_directory)
 
     # optimizer
     backbone_params = []

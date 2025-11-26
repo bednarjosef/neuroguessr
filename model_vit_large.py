@@ -65,6 +65,9 @@ class GeoguessrViTLarge(nn.Module):
         # self.land_cover_head = nn.Linear(self.embed_dim, 11)  # 11 classes
         # self.soil_head = nn.Linear(self.embed_dim, 15)  # 15 classes
         # self.month_head = nn.Linear(self.embed_dim, 12)  # 12 classes
+
+        self.train_transform = timm.data.create_transform(**self.get_config(), is_training=True)
+        self.eval_transform = timm.data.create_transform(**self.get_config(), is_training=False)
         
         print(f"Model initialized. Backbone frozen. Head input dim: {self.embed_dim}, Output classes: {CONFIG['clusters']}")
 
