@@ -29,7 +29,7 @@ def _build_patterns(splits: Iterable[str], include_images: bool, include_metadat
 
 def download_osv5m(
     target_dir: str,
-    repo_id: str = "mmint/osv5m",
+    repo_id: str = "osv5m/osv5m-wds",
     revision: str | None = None,
     splits: Iterable[str] = ("train", "val"),
     include_images: bool = True,
@@ -40,6 +40,7 @@ def download_osv5m(
     allow_patterns = _build_patterns(splits, include_images, include_metadata) or None
     snapshot_path = snapshot_download(
         repo_id=repo_id,
+        repo_type="dataset",
         revision=revision,
         local_dir=target_dir,
         allow_patterns=allow_patterns,
@@ -52,7 +53,7 @@ def download_osv5m(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Download OSV5M dataset locally.")
     parser.add_argument("--target_dir", type=str, required=True, help="Destination directory for the dataset.")
-    parser.add_argument("--repo_id", type=str, default="mmint/osv5m", help="Hugging Face dataset repo id.")
+    parser.add_argument("--repo_id", type=str, default="osv5m/osv5m-wds", help="Hugging Face dataset repo id.")
     parser.add_argument("--revision", type=str, default=None, help="Optional commit hash or tag.")
     parser.add_argument("--splits", type=str, nargs="+", default=["train", "val"], help="Splits to download.")
     parser.add_argument("--images", action="store_true", default=True, help="Download image shards.")
@@ -65,6 +66,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    print("Checking disk usage:")
+    os.system("df -h .")
+    print(f"\nStarting download of {args.repo_id} to {args.target_dir} ...")
     snapshot_path = download_osv5m(
         target_dir=args.target_dir,
         repo_id=args.repo_id,
@@ -74,7 +78,7 @@ def main() -> None:
         include_metadata=args.metadata,
         max_workers=args.workers,
     )
-    print(f"Dataset materialized at {snapshot_path}")
+    print(f"\nSuccess. Data located at: {snapshot_path}")
 
 
 if __name__ == "__main__":
