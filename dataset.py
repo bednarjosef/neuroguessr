@@ -48,6 +48,8 @@ def train_image_transform(image_size: int = 224) -> transforms.Compose:
 
 
 def _decode_metadata(meta_blob: bytes | str) -> Dict:
+    if isinstance(meta_blob, dict):
+        return meta_blob
     if isinstance(meta_blob, bytes):
         meta_blob = meta_blob.decode("utf-8")
     return json.loads(meta_blob)
