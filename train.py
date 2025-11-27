@@ -3,9 +3,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 
-from model import GeoGuessrViT
 from model_clip import CLIPModel
-from model_vit_large import GeoguessrViTLarge
 from clusters import get_clusters, get_cluster_labels
 from dataset import create_dataloader
 from evaluator import Evaluator
@@ -27,7 +25,7 @@ CONFIG = {
     'steps': 1000,
     # 'max_lr_backbone': 5e-6,
     'max_lr_head': 1e-4,
-    'batch_size': 256,
+    'batch_size': 512,
     'accum_steps': 1,
     'clusters': 256,
     'sigma_km': 150,
@@ -39,11 +37,13 @@ def train():
     torch.set_float32_matmul_precision('high')
 
     # init clusters
+    print('Initializing clusters...')
     cluster_centers = get_clusters(CONFIG)
     cluster_labels = get_cluster_labels(CONFIG, cluster_centers)
     cluster_labels = cluster_labels.to(CONFIG['device'])
 
     # init model
+    print('Initializing model...')
     model = CLIPModel(CONFIG).to(CONFIG['device'])
     model = torch.compile(model)
 
@@ -51,9 +51,11 @@ def train():
     eval_transform = model.eval_transform
 
     # data loader
+    print('Initializing data loader...')
     train_loader = create_dataloader(CONFIG, tar_directory, cluster_centers, train_transform, workers=12)
 
     # evaluator
+    print('Initializing evaluator...')
     evaluator = Evaluator(CONFIG, cluster_centers, eval_transform, val_directory)
 
     # optimizer
@@ -85,6 +87,7 @@ def train():
     #     epochs=1,
     # )
 
+    print('Initializing scheduler...')
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=CONFIG["steps"],
@@ -100,6 +103,7 @@ def train():
     )
 
     # train
+    print('Beginning training...')
     model.train()
     optimizer.zero_grad()
     best_median_km = float('inf')
