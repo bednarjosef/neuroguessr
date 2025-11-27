@@ -4,17 +4,14 @@ from collections import defaultdict
 
 import webdataset as wds
 from PIL import Image
-from datasets import Dataset, Features, Image as HFImage, Value
+from datasets import Dataset, Features, Value
 
-# ---------------------------------------------------------
-# 1. Config
-# ---------------------------------------------------------
-
-VAL_DIR = "./osv5m_local/val"   # directory containing val/*.tar
-OUTPUT_DIR = "./osv5m_local/small_val"  # where to save the HF dataset
+# ---------------- CONFIG ----------------
+VAL_DIR = "./osv5m_local/val"               # val/*.tar from osv5m-wds
+OUT_IMG_ROOT = "./osv5m_val_small_imgs"     # where to save small JPGs
+OUT_HF_DIR = "./osv5m_val_small_hf"         # where to save HF dataset
 TARGET_PER_COUNTRY = 100
 
-# Your list of countries (use the same one you used for clustering)
 countries = ['AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG',
              'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI',
              'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL',
@@ -23,13 +20,11 @@ countries = ['AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', '
              'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS',
              'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR',
              'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN']
-
 countries_set = set(countries)
 
-# ---------------------------------------------------------
-# 2. Build WebDataset pipeline over val/*.tar
-# ---------------------------------------------------------
+os.makedirs(OUT_IMG_ROOT, exist_ok=True)
 
+# ------------- WDS over val/*.tar -------------
 tar_files = sorted(glob.glob(os.path.join(VAL_DIR, "*.tar")))
 if not tar_files:
     raise RuntimeError(f"No .tar files found in {VAL_DIR}")
@@ -40,24 +35,19 @@ dataset = (
     wds.WebDataset(tar_files, shardshuffle=True)
     .shuffle(10000)
     .decode("pil")
-    .to_tuple("jpg", "json")  # -> (PIL.Image, dict)
+    .to_tuple("jpg", "json")   # -> (PIL.Image, dict)
 )
 
-# ---------------------------------------------------------
-# 3. Collect up to 100 images per country
-# ---------------------------------------------------------
-
-buffers = defaultdict(list)  # country -> list of records
-num_full = 0                 # how many countries already reached 100
-already_full = set()
+# ------------- Collect + save as JPGs -------------
+buffers = defaultdict(int)   # country -> count
+records = []                 # rows for HF dataset
 
 for img, meta in dataset:
     country = meta.get("country")
     if country not in countries_set:
         continue
 
-    # skip if we already have enough for this country
-    if country in already_full:
+    if buffers[country] >= TARGET_PER_COUNTRY:
         continue
 
     lat = meta.get("latitude")
@@ -65,66 +55,46 @@ for img, meta in dataset:
     if lat is None or lon is None:
         continue
 
-    # store basic info
-    buffers[country].append({
-        "image": img.copy(),
+    # Save image to disk: ./osv5m_val_small_imgs/COUNTRY/idx.jpg
+    country_dir = os.path.join(OUT_IMG_ROOT, country)
+    os.makedirs(country_dir, exist_ok=True)
+
+    idx = buffers[country]
+    img_path = os.path.join(country_dir, f"{idx:04d}.jpg")
+    img.convert("RGB").save(img_path, format="JPEG", quality=95)
+
+    buffers[country] += 1
+
+    records.append({
+        "image_path": img_path,
         "country": country,
         "latitude": float(lat),
         "longitude": float(lon),
     })
 
-    # if we just reached TARGET_PER_COUNTRY for this country, mark full
-    if len(buffers[country]) == TARGET_PER_COUNTRY:
-        already_full.add(country)
-        num_full += 1
-        print(f"Country {country}: reached {TARGET_PER_COUNTRY} samples "
-              f"({num_full}/{len(countries_set)} full)")
+    # optional: early exit if all countries reached target
+    # if all(buffers[c] >= TARGET_PER_COUNTRY for c in countries_set):
+    #     break
 
-        # If all countries are full, we can stop early
-        if num_full == len(countries_set):
-            print("Collected enough samples for all countries, stopping.")
-            break
-
-print("\nCollection finished.")
+print("\nPer-country counts:")
+total = 0
 for c in sorted(countries_set):
-    print(f"{c}: {len(buffers[c])} samples")
+    cnt = buffers[c]
+    total += cnt
+    print(f"{c}: {cnt} samples")
 
-# ---------------------------------------------------------
-# 4. Flatten into a single list of records
-# ---------------------------------------------------------
+print(f"Total samples in small val set: {total}")
 
-records = []
-for c in sorted(countries_set):
-    records.extend(buffers[c])
-
-print(f"Total samples in small val set: {len(records)}")
-
-# ---------------------------------------------------------
-# 5. Build Hugging Face Dataset and save to disk
-# ---------------------------------------------------------
-
-images = [r["image"] for r in records]
-countries_col = [r["country"] for r in records]
-lats = [r["latitude"] for r in records]
-lons = [r["longitude"] for r in records]
-
+# ------------- HF dataset: just paths + metadata -------------
 features = Features({
-    "image": HFImage(),
+    "image_path": Value("string"),
     "country": Value("string"),
     "latitude": Value("float32"),
     "longitude": Value("float32"),
 })
 
-hf_ds = Dataset.from_dict(
-    {
-        "image": images,
-        "country": countries_col,
-        "latitude": lats,
-        "longitude": lons,
-    },
-    features=features,
-)
-
+hf_ds = Dataset.from_list(records).cast(features)
 print(hf_ds)
-hf_ds.save_to_disk(OUTPUT_DIR)
-print(f"\nSaved small val dataset to: {OUTPUT_DIR}")
+
+hf_ds.save_to_disk(OUT_HF_DIR)
+print(f"\nSaved small val HF dataset to: {OUT_HF_DIR}")

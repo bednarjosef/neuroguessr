@@ -106,14 +106,14 @@ class LocalValDataset(Dataset):
 
     def __getitem__(self, idx):
         ex = self.ds[idx]
-        img = ex["image"]         # this is a PIL.Image from HF
+        img_path = ex["image_path"]
         lat = float(ex["latitude"])
         lon = float(ex["longitude"])
 
-        img_t = self.transform(img)  # you handle resize/normalize inside transform
+        img = Image.open(img_path).convert("RGB")
+        img_t = self.transform(img)
         label_loc = get_closest_cluster(lat, lon, self.centers)
 
-        # exactly the tuple your Evaluator expects:
         return img_t, label_loc, lat, lon
 
 
