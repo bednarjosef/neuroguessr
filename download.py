@@ -1,7 +1,6 @@
 from huggingface_hub import snapshot_download
 import os
 
-# --- CONFIG ---
 REPO_ID = "osv5m/osv5m-wds"
 LOCAL_DIR = "./osv5m_local" # Where to save the files
 MAX_WORKERS = 16 # Number of parallel downloads
