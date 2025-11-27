@@ -6,7 +6,6 @@ from sklearn.cluster import MiniBatchKMeans
 from datasets import load_dataset
 
 
-
 def latlon_to_xyz(lat, lon):
     lat_rad = np.deg2rad(lat)
     lon_rad = np.deg2rad(lon)
@@ -52,10 +51,34 @@ if __name__ == '__main__':
     countries = ['AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG', 'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI', 'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL', 'IT', 'JP', 'JO', 'KE', 'KG', 'LV', 'LB', 'LS', 'LI', 'LT', 'LU', 'MY', 'MX', 'MN', 'ME', 'NA', 'NL', 'NZ', 'NG', 'MK', 'NO', 'OM', 'PS', 'PA', 'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS', 'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR', 'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN']
     centers, labels, df = generate_clusters(countries, 256, 'cache')
 
-    print(centers)
-    print(labels)
-    print(len(df))
 
-    # ds = load_dataset("osv5m/osv5m", full=True, num_proc=12)
-    # train = ds["train"]
-    
+    num_clusters = 256
+    df["cluster"] = labels
+    max_per_cluster = 1000
+
+    sampled_frames = []
+    cluster_counts = {}
+
+    rng = np.random.default_rng(42)
+
+    for c in range(num_clusters):
+        print(f'gathering for cluster {c}')
+        g = df[df["cluster"] == c]
+        n = len(g)
+        cluster_counts[c] = n
+
+        if n == 0:
+            print(f"cluster {c}: 0 samples in CSV")
+            continue
+
+        if n <= max_per_cluster:
+            sampled = g
+        else:
+            # random choice of indices inside this cluster
+            idx = rng.choice(g.index.values, size=max_per_cluster, replace=False)
+            sampled = g.loc[idx]
+
+        sampled_frames.append(sampled)
+
+    sampled_df = pd.concat(sampled_frames, ignore_index=True)
+    print("Total sampled rows:", len(sampled_df))        

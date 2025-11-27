@@ -4,14 +4,15 @@ import torch.optim as optim
 import torch.nn as nn
 
 from model import GeoGuessrViT
+from model_clip import CLIPModel
 from model_vit_large import GeoguessrViTLarge
 from clusters import get_clusters, get_cluster_labels
 from dataset import create_dataloader
 from evaluator import Evaluator
 import wandb
 
-tar_directory = '/workspace/neuroguessr/osv5m_local_data/train'
-val_directory = '/workspace/neuroguessr/val_cache_3'
+tar_directory = './osv5m_local/train'
+val_directory = './osv5m_local/val'
 
 countries = [
     'AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG', 'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI', 'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL', 'IT', 'JP', 'JO', 'KE', 'KG', 'LV', 'LB', 'LS', 'LI', 'LT', 'LU', 'MY', 'MX', 'MN', 'ME', 'NA', 'NL', 'NZ', 'NG', 'MK', 'NO', 'OM', 'PS', 'PA', 'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS', 'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR', 'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN',
@@ -23,14 +24,14 @@ CONFIG = {
     'eval_interval': 100,
     'countries': countries,
     'num_countries': len(countries),
-    'steps': 5000,
-    'max_lr_backbone': 5e-6,
+    'steps': 1000,
+    # 'max_lr_backbone': 5e-6,
     'max_lr_head': 1e-4,
-    'batch_size': 512,
+    'batch_size': 256,
     'accum_steps': 1,
-    'clusters': 200,
-    'sigma_km': 300,
-    'model': 'vit_large_patch14_clip_336.laion2b_ft_in12k_in1k'
+    'clusters': 256,
+    'sigma_km': 150,
+    'model': 'ViT-L/14@336px'
 }
 
 
@@ -43,7 +44,7 @@ def train():
     cluster_labels = cluster_labels.to(CONFIG['device'])
 
     # init model
-    model = GeoguessrViTLarge(CONFIG).to(CONFIG['device'])
+    model = CLIPModel(CONFIG).to(CONFIG['device'])
     model = torch.compile(model)
 
     train_transform = model.train_transform
@@ -70,7 +71,7 @@ def train():
 
     optimizer = optim.AdamW(
         [
-            {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
+            # {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
             {"params": head_params, "lr": CONFIG['max_lr_head']},
         ],
         # weight_decay=0.01,
@@ -126,22 +127,22 @@ def train():
             optimizer.zero_grad()
             scheduler.step()
 
-            curr_lr_backbone = scheduler.get_last_lr()[0]
-            curr_lr_head = scheduler.get_last_lr()[1]
+            # curr_lr_backbone = scheduler.get_last_lr()[0]
+            curr_lr_head = scheduler.get_last_lr()[0]
             loss_val = loss.item() * CONFIG['accum_steps']
 
             with torch.no_grad():
                 preds = predicted_clusters.argmax(dim=1)
                 train_acc = (preds == cluster_label).float().mean().item() * 100
-                num_seen = int(seen_clusters.sum())
+                # num_seen = int(seen_clusters.sum())
                 
             
             wandb.log({
                 "loss/total": loss_val,
-                "lr/backbone": curr_lr_backbone,
+                # "lr/backbone": curr_lr_backbone,
                 "lr/head": curr_lr_head,
                 "train/acc_top1": train_acc,
-                "train/seen_clusters": num_seen,
+                # "train/seen_clusters": num_seen,
             }, step=step+1)
 
             if (step + 1) % 10 == 0:
@@ -149,7 +150,7 @@ def train():
             
             # evaluate
             if evaluator and (((step + 1) % CONFIG['eval_interval'] == 0) or step == 0):
-                metrics = evaluator.run(model, seen_clusters)
+                metrics = evaluator.run(model)
                 wandb.log(metrics, step=step+1)
 
                 current_median = metrics['val/top1_median_km']
