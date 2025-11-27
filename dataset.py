@@ -73,6 +73,6 @@ class OSVDataset(IterableDataset):
 
 def create_dataloader(CONFIG, tar_directory, cluster_centers, transform, workers):
     dataset = ClusterDataset(CONFIG['countries'], tar_directory, cluster_centers, transform)
-    loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True)
+    loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True, shuffle=True)
     return loader
 

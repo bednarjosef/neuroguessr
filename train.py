@@ -1,12 +1,13 @@
 import numpy as np
 import torch
 import torch.optim as optim
-import torch.nn as nn
 
 from model_clip import CLIPModel
-from clusters import get_clusters, get_cluster_labels
+from clusters import get_clusters
 from dataset import create_dataloader
 from evaluator import Evaluator
+from loss import PIGEONLoss
+
 import wandb
 
 tar_directory = './osv5m_local/train'
@@ -19,28 +20,27 @@ countries = [
 CONFIG = {
     'device': 'cuda',
     'cache_dir': 'cache',
-    'eval_interval': 100,
+    'eval_interval': 500,
     'countries': countries,
     'num_countries': len(countries),
-    'steps': 1000,
+    'steps': 7500,
     # 'max_lr_backbone': 5e-6,
     'max_lr_head': 1e-4,
     'batch_size': 512,
     'accum_steps': 1,
     'clusters': 256,
-    'sigma_km': 150,
+    'tau_km': 150,
     'model': 'ViT-L/14@336px'
 }
 
 
 def train():
     torch.set_float32_matmul_precision('high')
+    torch.backends.cudnn.benchmark = True
 
     # init clusters
     print('Initializing clusters...')
     cluster_centers = get_clusters(CONFIG)
-    cluster_labels = get_cluster_labels(CONFIG, cluster_centers)
-    cluster_labels = cluster_labels.to(CONFIG['device'])
 
     # init model
     print('Initializing model...')
@@ -79,21 +79,14 @@ def train():
         # weight_decay=0.01,
     )
 
-    # lr scheduler
-    # scheduler = optim.lr_scheduler.OneCycleLR(
-    #     optimizer,
-    #     max_lr=[CONFIG['max_lr_backbone'], CONFIG['max_lr_head']],
-    #     steps_per_epoch=CONFIG['steps'],
-    #     epochs=1,
-    # )
-
     print('Initializing scheduler...')
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=CONFIG["steps"],
     )
 
-    criterion_cluster = nn.CrossEntropyLoss()
+    print('Initializing PIGEON loss...')
+    pigeon = PIGEONLoss(CONFIG, cluster_centers)
     scaler = torch.amp.GradScaler('cuda')
 
     # init wandb
@@ -113,16 +106,18 @@ def train():
         if step >= (CONFIG['steps'] * CONFIG['accum_steps']):
             break
         images = batch[0].to(CONFIG['device'], non_blocking=True)
-        cluster_label = batch[1].to(CONFIG['device'], non_blocking=True)
-        seen_clusters[cluster_label.cpu().numpy()] = True
-        target_probs = cluster_labels[cluster_label]
+        true_clusters = batch[1].to(CONFIG['device'], non_blocking=True)
+        true_lats = batch[2].to(CONFIG['device'], non_blocking=True)
+        true_lons = batch[3].to(CONFIG['device'], non_blocking=True)
+
+        seen_clusters[true_clusters.cpu().numpy()] = True
 
         with torch.amp.autocast('cuda'):
-            predicted_clusters = model(images)
-            loss_clusters = criterion_cluster(predicted_clusters, target_probs)  # cluster_label
-            loss = loss_clusters / CONFIG['accum_steps']
+            logits = model(images)
+            smooth_loss = pigeon.loss(CONFIG, logits, true_clusters, true_lats, true_lons)
+            smooth_loss = smooth_loss / CONFIG['accum_steps']
 
-        scaler.scale(loss).backward()
+        scaler.scale(smooth_loss).backward()
 
         # update weights, log
         if (step + 1) % CONFIG['accum_steps'] == 0:
@@ -133,11 +128,11 @@ def train():
 
             # curr_lr_backbone = scheduler.get_last_lr()[0]
             curr_lr_head = scheduler.get_last_lr()[0]
-            loss_val = loss.item() * CONFIG['accum_steps']
+            loss_val = smooth_loss.item() * CONFIG['accum_steps']
 
             with torch.no_grad():
-                preds = predicted_clusters.argmax(dim=1)
-                train_acc = (preds == cluster_label).float().mean().item() * 100
+                preds = logits.argmax(dim=1)
+                train_acc = (preds == true_clusters).float().mean().item() * 100
                 # num_seen = int(seen_clusters.sum())
                 
             
@@ -169,7 +164,7 @@ def train():
                     print(f"🔥 New Best Model! Median Error: {best_median_km:.0f} km")
     
 
-    torch.save(model.state_dict(), "geoguessr_new.pth")
+    torch.save(model.state_dict(), "geoguessr_fresh.pth")
     wandb.finish()
     print("Training Complete.")
 
