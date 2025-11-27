@@ -5,19 +5,16 @@ import json
 import numpy as np
 import datetime
 from PIL import Image
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset
 
 from clusters import latlon_to_xyz, get_closest_cluster
 import glob
 import webdataset as wds
 
-class LocalValDataset(IterableDataset):
+class LocalValDataset(Dataset):
     def __init__(self, root_dir, transform, cluster_centers, countries=None):
         """
-        root_dir: directory containing val/*.tar  (e.g. "./osv5m_local/val")
-        transform: torchvision transforms to apply to the PIL image
-        cluster_centers: np.ndarray or list of shape (num_clusters, 3)
-        countries: optional iterable of allowed country codes (to filter)
+        root_dir: directory containing val/*.tar
         """
         super().__init__()
 
@@ -25,33 +22,20 @@ class LocalValDataset(IterableDataset):
         self.centers = torch.tensor(cluster_centers, dtype=torch.float32)
         self.countries = set(countries) if countries is not None else None
 
-        # Find all .tar shards in the given directory
-        self.tar_files = sorted(glob.glob(os.path.join(root_dir, "*.tar")))
-        if not self.tar_files:
+        tar_files = sorted(glob.glob(os.path.join(root_dir, "*.tar")))
+        if not tar_files:
             raise RuntimeError(f"No .tar files found in {root_dir}")
 
-        # Build the WebDataset pipeline once; we'll re-create it in __iter__
-        # to be safe with multiple workers.
-        self._wds_kwargs = dict(
-            tar_files=self.tar_files,
-        )
+        # --- ONE-TIME: scan WDS and cache everything we need ---
+        self.samples = []
 
-        print(f"LocalValDataset: found {len(self.tar_files)} tar files in {root_dir}")
-
-    def _make_wds(self):
-        """Create a fresh WebDataset pipeline (one per worker)."""
         dataset = (
-            wds.WebDataset(self.tar_files, shardshuffle=False)  # no shard shuffle for deterministic val
+            wds.WebDataset(tar_files, shardshuffle=False)
             .decode("pil")
-            .to_tuple("jpg", "json")  # -> (PIL.Image, dict)
+            .to_tuple("jpg", "json")
         )
-        return dataset
-
-    def __iter__(self):
-        dataset = self._make_wds()
 
         for img, meta in dataset:
-            # Filter by country if needed
             country = meta.get("country")
             if self.countries is not None:
                 if not country or country not in self.countries:
@@ -62,7 +46,6 @@ class LocalValDataset(IterableDataset):
             if lat is None or lon is None:
                 continue
 
-            # --------- metadata like in your original code ----------
             clim = int(meta.get("climate", -1))
             if clim < 0 or clim >= 33:
                 clim = -1
@@ -82,18 +65,33 @@ class LocalValDataset(IterableDataset):
                     month = -1
             else:
                 month = -1
-            # --------------------------------------------------------
 
-            # Apply transforms
-            img_t = self.transform(img.convert("RGB"))
+            # cache image (or jpg bytes) + metadata in memory
+            # for maximum speed in __getitem__
+            self.samples.append({
+                "image": img.copy(),
+                "lat": float(lat),
+                "lon": float(lon),
+                "clim": clim,
+                "land": land,
+                "soil": soil,
+                "month": month,
+            })
 
-            # Location cluster
-            label_loc = get_closest_cluster(lat, lon, self.centers)
+        print(f"Evaluator loaded {len(self.samples)} images from WDS.")
 
-            # Keeping return signature identical to your original:
-            return_item = (img_t, label_loc, lat, lon)
-            yield return_item
-            
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        item = self.samples[idx]
+        img = item["image"]
+        img = self.transform(img)
+
+        label_loc = get_closest_cluster(item["lat"], item["lon"], self.centers)
+
+        return img, label_loc, item["lat"], item["lon"]
+
 
 class Evaluator:
     def __init__(self, CONFIG, cluster_centers, transform, val_dir):
@@ -155,7 +153,7 @@ class Evaluator:
 
     def run(self, model, seen_clusters=None):
         model.eval()
-        
+
         # Distance containers
         dists_top1 = []
         dists_top5_cons = []  # Consensus

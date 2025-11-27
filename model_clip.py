@@ -8,13 +8,15 @@ class CLIPModel(nn.Module):
         super().__init__()
         self.device = CONFIG['device']
         self.num_classes = CONFIG['clusters']
-        self.clip_model, transform = clip.load("ViT-L/14@336px", device=self.device)
+        self.clip_model, transform = clip.load("ViT-L/14@336px", device=self.device, jit=False)
+        self.clip_model = self.clip_model.to(self.device)
+        self.clip_model.float()
 
         self.train_transform = transform
         self.eval_transform = transform
 
         self.vision_encoder = self.clip_model.visual
-        self.vision_dim = self.vision_encoder.num_features
+        self.vision_dim = self.vision_encoder.output_dim
 
         # freeze backbone
         for p in self.vision_encoder.parameters():
