@@ -3,6 +3,7 @@ import torch
 import torch.optim as optim
 
 from model_clip import CLIPModel
+from model_clip_res_unfrozen import ResCLIPModel
 from clusters import get_clusters
 from dataset import create_dataloader
 from evaluator import Evaluator
@@ -24,13 +25,14 @@ CONFIG = {
     'countries': countries,
     'num_countries': len(countries),
     'steps': 7500,
-    # 'max_lr_backbone': 5e-6,
-    'max_lr_head': 1e-4,
+    'max_lr_backbone': 1e-6,
+    'max_lr_head': 1e-3,
     'batch_size': 512,
     'accum_steps': 1,
     'clusters': 1024,
     'tau_km': 150,
-    'model': 'ViT-L/14@336px'
+    'model': 'ViT-L/14@336px',
+    'unfrozen_layers': 2,
 }
 
 
@@ -44,7 +46,7 @@ def train():
 
     # init model
     print('Initializing model...')
-    model = CLIPModel(CONFIG).to(CONFIG['device'])
+    model = ResCLIPModel(CONFIG).to(CONFIG['device'])
     model = torch.compile(model)
 
     train_transform = model.train_transform
@@ -66,14 +68,14 @@ def train():
         if not param.requires_grad:
             continue
 
-        if name.startswith("backbone."):
+        if 'backbone' in name:
             backbone_params.append(param)
         else:
             head_params.append(param)
 
     optimizer = optim.AdamW(
         [
-            # {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
+            {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
             {"params": head_params, "lr": CONFIG['max_lr_head']},
         ],
         # weight_decay=0.01,
@@ -126,8 +128,8 @@ def train():
             optimizer.zero_grad()
             scheduler.step()
 
-            # curr_lr_backbone = scheduler.get_last_lr()[0]
-            curr_lr_head = scheduler.get_last_lr()[0]
+            curr_lr_backbone = scheduler.get_last_lr()[0]
+            curr_lr_head = scheduler.get_last_lr()[1]
             loss_val = smooth_loss.item() * CONFIG['accum_steps']
 
             with torch.no_grad():  # TODO: softmax?
@@ -138,7 +140,7 @@ def train():
             
             wandb.log({
                 "loss/total": loss_val,
-                # "lr/backbone": curr_lr_backbone,
+                "lr/backbone": curr_lr_backbone,
                 "lr/head": curr_lr_head,
                 "train/acc_top1": train_acc,
                 # "train/seen_clusters": num_seen,
@@ -160,11 +162,11 @@ def train():
                 # save best
                 if current_median < best_median_km:
                     best_median_km = current_median
-                    torch.save(model.state_dict(), "geoguessr_best.pth")
+                    torch.save(model.state_dict(), "neuroguessr_1024classes_timm_clipL_unfrozen_best.pth")
                     print(f"🔥 New Best Model! Median Error: {best_median_km:.0f} km")
     
 
-    torch.save(model.state_dict(), "geoguessr_fresh.pth")
+    torch.save(model.state_dict(), "neuroguessr_1024classes_timm_clipL_unfrozen_final.pth")
     wandb.finish()
     print("Training Complete.")
 
