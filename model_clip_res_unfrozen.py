@@ -46,9 +46,9 @@ class ResCLIPModel(nn.Module):
 
         # classifier
         self.classifier = nn.Sequential(
-            ResBlock(self.vision_dim, dropout=0.3),
-            ResBlock(self.vision_dim, dropout=0.3),
-            nn.LayerNorm(self.vision_dim),
+            # ResBlock(self.vision_dim, dropout=0.3),
+            # ResBlock(self.vision_dim, dropout=0.3),
+            # nn.LayerNorm(self.vision_dim),
             nn.Linear(self.vision_dim, self.num_classes)
         )
 
