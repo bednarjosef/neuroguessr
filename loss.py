@@ -46,7 +46,7 @@ class PIGEONLoss():
         d_true = dists.gather(1, true_clusters.unsqueeze(1))  # (B, 1)
 
         # weights y_{n,i} = exp(-(d_i - d_true)/tau)
-        weights = torch.exp(-(dists - d_true) / CONFIG['tau'])          # (B, K)
+        weights = torch.exp(-(dists - d_true) / CONFIG['tau_km'])          # (B, K)
 
         # OPTIONAL: normalize per row (not required mathematically, but common)
         weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-12)

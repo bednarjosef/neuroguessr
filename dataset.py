@@ -34,7 +34,7 @@ class ClusterDataset(IterableDataset):
                 cluster_label = get_closest_cluster(lat, lon, self.cluster_centers)
                 
                 img_tensor = self.transform(img.convert("RGB"))
-                yield img_tensor, cluster_label
+                yield img_tensor, cluster_label, lat, lon
             
             # simply skip if any error
             except Exception:
@@ -73,6 +73,6 @@ class OSVDataset(IterableDataset):
 
 def create_dataloader(CONFIG, tar_directory, cluster_centers, transform, workers):
     dataset = ClusterDataset(CONFIG['countries'], tar_directory, cluster_centers, transform)
-    loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True, shuffle=True)
+    loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True)
     return loader
 

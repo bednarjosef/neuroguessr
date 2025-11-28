@@ -130,7 +130,7 @@ def train():
             curr_lr_head = scheduler.get_last_lr()[0]
             loss_val = smooth_loss.item() * CONFIG['accum_steps']
 
-            with torch.no_grad():
+            with torch.no_grad():  # TODO: softmax?
                 preds = logits.argmax(dim=1)
                 train_acc = (preds == true_clusters).float().mean().item() * 100
                 # num_seen = int(seen_clusters.sum())
