@@ -25,14 +25,15 @@ CONFIG = {
     'countries': countries,
     'num_countries': len(countries),
     'steps': 7500,
-    'max_lr_backbone': 1e-6,
-    'max_lr_head': 1e-3,
+    'max_lr_backbone': 3e-6,
+    'max_lr_head': 3e-4,
     'batch_size': 512,
     'accum_steps': 1,
     'clusters': 1024,
     'tau_km': 150,
     'model': 'ViT-L/14@336px',
     'unfrozen_layers': 2,
+    'unfreeze_after': 1000,
 }
 
 
@@ -78,7 +79,7 @@ def train():
             {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
             {"params": head_params, "lr": CONFIG['max_lr_head']},
         ],
-        # weight_decay=0.01,
+        weight_decay=0.05,
     )
 
     print('Initializing scheduler...')
@@ -107,6 +108,17 @@ def train():
     for step, batch in enumerate(train_loader):
         if step >= (CONFIG['steps'] * CONFIG['accum_steps']):
             break
+
+        if step < (CONFIG['unfreeze_after'] + 1):
+            model.backbone.eval() # Tell backbone to act frozen (norm layers)
+            for p in backbone_params:
+                p.requires_grad = False
+        elif step == (CONFIG['unfreeze_after'] + 1):
+            print("❄️ -> 🔥 Unfreezing Backbone now!")
+            model.backbone.train()
+            for p in backbone_params:
+                p.requires_grad = True
+
         images = batch[0].to(CONFIG['device'], non_blocking=True)
         true_clusters = batch[1].to(CONFIG['device'], non_blocking=True)
         true_lats = batch[2].to(CONFIG['device'], non_blocking=True)

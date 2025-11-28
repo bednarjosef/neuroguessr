@@ -17,6 +17,7 @@ import folium
 
 # Import your model + clusters
 from model_clip import CLIPModel
+# from model_clip_res_unfrozen import ResCLIPModel
 from clusters import get_clusters, xyz_to_latlon
 
 
@@ -47,7 +48,7 @@ def build_config():
         "max_lr_head": 1e-4,
         "batch_size": 512,
         "accum_steps": 1,
-        "clusters": 256,
+        "clusters": 1024,
         "tau_km": 150,
         "model": "ViT-L/14@336px",
     }
@@ -73,7 +74,7 @@ def load_model_and_clusters(ckpt_path: str):
     state_dict = torch.load(ckpt_path, map_location=device)
 
     # In case the state_dict was saved from a compiled model, keys should still match.
-    raw_state = torch.load("models/geoguessr_best.pth", map_location=device)
+    raw_state = torch.load(ckpt_path, map_location=device)
     fixed_state = {}
     for k, v in raw_state.items():
         new_k = k
@@ -239,7 +240,7 @@ def main():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/geoguessr_best.pth",
+        default="models/neuroguessr_1024classes_clipL_best.pth",
         help="Path to the .pth checkpoint (state_dict) to load.",
     )
     args = parser.parse_args()

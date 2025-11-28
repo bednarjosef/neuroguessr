@@ -34,8 +34,8 @@ class ResCLIPModel(nn.Module):
         )
 
         # transforms
-        self.train_transform = timm.data.create_transform(**self.get_config(), is_training=True)
-        self.eval_transform = timm.data.create_transform(**self.get_config(), is_training=False)
+        self.train_transform = timm.data.create_transform(**self.get_config(), is_training=True, scale=(0.5, 1.0))
+        self.eval_transform = timm.data.create_transform(**self.get_config(), is_training=False, scale=(0.5, 1.0))
 
         # dim
         self.vision_dim = self.backbone.num_features
@@ -46,8 +46,8 @@ class ResCLIPModel(nn.Module):
 
         # classifier
         self.classifier = nn.Sequential(
-            ResBlock(self.vision_dim, dropout=0.2),
-            ResBlock(self.vision_dim, dropout=0.2),
+            ResBlock(self.vision_dim, dropout=0.3),
+            ResBlock(self.vision_dim, dropout=0.3),
             nn.LayerNorm(self.vision_dim),
             nn.Linear(self.vision_dim, self.num_classes)
         )
