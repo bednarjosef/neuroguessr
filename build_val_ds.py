@@ -32,7 +32,7 @@ if not tar_files:
 print(f"Found {len(tar_files)} val shards")
 
 dataset = (
-    wds.WebDataset(tar_files, shardshuffle=True)
+    wds.WebDataset(tar_files, shardshuffle=100)
     .shuffle(10000)
     .decode("pil")
     .to_tuple("jpg", "json")   # -> (PIL.Image, dict)

@@ -8,7 +8,6 @@ class CLIPModel(nn.Module):
         self.device = CONFIG['device']
         self.num_classes = CONFIG['clusters']
         self.clip_model, transform = clip.load("ViT-L/14@336px", device=self.device, jit=False)
-        self.clip_model = self.clip_model.to(self.device)
         self.clip_model.float()
 
         self.train_transform = transform

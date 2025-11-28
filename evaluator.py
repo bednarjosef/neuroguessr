@@ -214,6 +214,7 @@ class Evaluator:
 
                 # Forward
                 out_loc = model(imgs)  # , out_clim, out_land, out_soil, out_month
+
                 
                 # --- ACCURACY METRICS ---
                 

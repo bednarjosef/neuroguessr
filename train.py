@@ -20,7 +20,7 @@ countries = [
 CONFIG = {
     'device': 'cuda',
     'cache_dir': 'cache',
-    'eval_interval': 500,
+    'eval_interval': 250,
     'countries': countries,
     'num_countries': len(countries),
     'steps': 7500,
@@ -28,7 +28,7 @@ CONFIG = {
     'max_lr_head': 1e-4,
     'batch_size': 512,
     'accum_steps': 1,
-    'clusters': 256,
+    'clusters': 1024,
     'tau_km': 150,
     'model': 'ViT-L/14@336px'
 }
