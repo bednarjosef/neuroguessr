@@ -33,7 +33,7 @@ CONFIG = {
     'tau_km': 100,
     'model': 'ViT-L/14@336px',
     'unfrozen_layers': 2,
-    'unfreeze_after': -1,
+    'unfreeze_after': -10,
 }
 
 
