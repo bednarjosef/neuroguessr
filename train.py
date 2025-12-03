@@ -5,14 +5,14 @@ import torch.optim as optim
 from model_clip import CLIPModel
 from model_clip_res_unfrozen import ResCLIPModel
 from clusters import get_clusters
-from dataset import create_dataloader
+from dataset import create_streetview_dataloader
 from evaluator import Evaluator
 from loss import PIGEONLoss
 
 import wandb
 
-tar_directory = './osv5m_local/train'
-val_directory = './osv5m_val_small_hf'
+ds_dir = './streetview-local'
+val_directory = './streetview-local'
 
 countries = [
     'AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG', 'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI', 'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL', 'IT', 'JP', 'JO', 'KE', 'KG', 'LV', 'LB', 'LS', 'LI', 'LT', 'LU', 'MY', 'MX', 'MN', 'ME', 'NA', 'NL', 'NZ', 'NG', 'MK', 'NO', 'OM', 'PS', 'PA', 'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS', 'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR', 'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN',
@@ -21,19 +21,19 @@ countries = [
 CONFIG = {
     'device': 'cuda',
     'cache_dir': 'cache',
-    'eval_interval': 250,
+    'eval_interval': 100,
     'countries': countries,
     'num_countries': len(countries),
-    'steps': 7500,
+    'steps': 3500,
     'max_lr_backbone': 3e-6,
     'max_lr_head': 3e-4,
     'batch_size': 512,
     'accum_steps': 1,
     'clusters': 1024,
-    'tau_km': 150,
+    'tau_km': 100,
     'model': 'ViT-L/14@336px',
     'unfrozen_layers': 2,
-    'unfreeze_after': 1000,
+    'unfreeze_after': -1,
 }
 
 
@@ -47,7 +47,7 @@ def train():
 
     # init model
     print('Initializing model...')
-    model = ResCLIPModel(CONFIG).to(CONFIG['device'])
+    model = CLIPModel(CONFIG).to(CONFIG['device'])
     model = torch.compile(model)
 
     train_transform = model.train_transform
@@ -55,7 +55,7 @@ def train():
 
     # data loader
     print('Initializing data loader...')
-    train_loader = create_dataloader(CONFIG, tar_directory, cluster_centers, train_transform, workers=12)
+    train_loader = create_streetview_dataloader(CONFIG, ds_dir, 'train', cluster_centers, train_transform, workers=12)
 
     # evaluator
     print('Initializing evaluator...')
@@ -174,11 +174,11 @@ def train():
                 # save best
                 if current_median < best_median_km:
                     best_median_km = current_median
-                    torch.save(model.state_dict(), "neuroguessr_1024classes_timm_clipL_unfrozen_best.pth")
+                    torch.save(model.state_dict(), "neuroguessr-1024-large-streetview-pretrained-best.pth")
                     print(f"🔥 New Best Model! Median Error: {best_median_km:.0f} km")
     
 
-    torch.save(model.state_dict(), "neuroguessr_1024classes_timm_clipL_unfrozen_final.pth")
+    torch.save(model.state_dict(), "neuroguessr-1024-large-streetview-pretrained-final.pth")
     wandb.finish()
     print("Training Complete.")
 

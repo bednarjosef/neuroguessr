@@ -9,89 +9,10 @@ from torch.utils.data import DataLoader, Dataset, IterableDataset
 from datasets import load_from_disk
 
 from clusters import latlon_to_xyz, get_closest_cluster
+from dataset import create_streetview_dataloader
 import glob
 import webdataset as wds
 
-# class LocalValDataset(Dataset):
-#     def __init__(self, root_dir, transform, cluster_centers, countries=None):
-#         """
-#         root_dir: directory containing val/*.tar
-#         """
-#         super().__init__()
-
-#         self.transform = transform
-#         self.centers = torch.tensor(cluster_centers, dtype=torch.float32)
-#         self.countries = set(countries) if countries is not None else None
-
-#         tar_files = sorted(glob.glob(os.path.join(root_dir, "*.tar")))
-#         if not tar_files:
-#             raise RuntimeError(f"No .tar files found in {root_dir}")
-
-#         # --- ONE-TIME: scan WDS and cache everything we need ---
-#         self.samples = []
-
-#         dataset = (
-#             wds.WebDataset(tar_files, shardshuffle=False)
-#             .decode("pil")
-#             .to_tuple("jpg", "json")
-#         )
-
-#         for img, meta in dataset:
-#             country = meta.get("country")
-#             if self.countries is not None:
-#                 if not country or country not in self.countries:
-#                     continue
-
-#             lat = meta.get("latitude")
-#             lon = meta.get("longitude")
-#             if lat is None or lon is None:
-#                 continue
-
-#             clim = int(meta.get("climate", -1))
-#             if clim < 0 or clim >= 33:
-#                 clim = -1
-
-#             land = int(meta.get("land_cover", -1))
-#             if land < 0 or land >= 18:
-#                 land = -1
-
-#             soil = int(meta.get("soil", -1))
-#             if soil < 0 or soil >= 33:
-#                 soil = -1
-
-#             ts = meta.get("captured_at")
-#             if ts:
-#                 month = datetime.datetime.fromtimestamp(ts / 1000.0).month - 1
-#                 if month < 0 or month >= 12:
-#                     month = -1
-#             else:
-#                 month = -1
-
-#             # cache image (or jpg bytes) + metadata in memory
-#             # for maximum speed in __getitem__
-#             self.samples.append({
-#                 "image": img.copy(),
-#                 "lat": float(lat),
-#                 "lon": float(lon),
-#                 "clim": clim,
-#                 "land": land,
-#                 "soil": soil,
-#                 "month": month,
-#             })
-
-#         print(f"Evaluator loaded {len(self.samples)} images from WDS.")
-
-#     def __len__(self):
-#         return len(self.samples)
-
-#     def __getitem__(self, idx):
-#         item = self.samples[idx]
-#         img = item["image"]
-#         img = self.transform(img)
-
-#         label_loc = get_closest_cluster(item["lat"], item["lon"], self.centers)
-
-#         return img, label_loc, item["lat"], item["lon"]
 
 
 class LocalValDataset(Dataset):
@@ -122,8 +43,10 @@ class Evaluator:
         batch_size = CONFIG['batch_size']
         self.device = CONFIG['device']
         
-        self.dataset = LocalValDataset(val_dir, transform, cluster_centers)
-        self.loader = DataLoader(self.dataset, batch_size=batch_size, num_workers=4)
+        # self.dataset = LocalValDataset(val_dir, transform, cluster_centers)
+        # self.loader = DataLoader(self.dataset, batch_size=batch_size, num_workers=4)
+        self.loader = create_streetview_dataloader(CONFIG, val_dir, 'val', cluster_centers, transform, workers=12)
+
         self.centers_gpu = torch.tensor(cluster_centers, device=self.device, dtype=torch.float32)
 
     def haversine(self, lat1, lon1, lat2, lon2):
