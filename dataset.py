@@ -52,6 +52,9 @@ class StreetViewDataset(IterableDataset):
     
         self.dataset = None
 
+        self.kept_count = 0
+        self.dropped_count = 0
+
     def _init_dataset(self):
         ds = load_dataset(self.repo_id, split=self.split, streaming=True)
         ds = ds.shuffle(seed=42, buffer_size=10_000)
@@ -85,13 +88,20 @@ class StreetViewDataset(IterableDataset):
 
         for sample in iterator:
             try:
+                total = self.kept_count + self.dropped_count
+                if total > 0 and total % 1000 == 0:
+                     print(f"Worker stats: Kept {self.kept_count} | Dropped {self.dropped_count} | Pass Rate: {self.kept_count/total:.1%}")
+                
                 country = sample.get('country_code')
                 if not country or country not in self.countries:
+                    self.dropped_count += 1
                     continue
 
                 lat, lon = sample.get('latitude'), sample.get('longitude')
                 if lat is None or lon is None:
                     continue
+
+                self.kept_count += 1
 
                 cluster_label = get_closest_cluster(lat, lon, self.cluster_centers)                
                 img_tensor = self.transform(sample['image'].convert("RGB"))
