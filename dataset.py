@@ -62,10 +62,26 @@ class StreetViewDataset(IterableDataset):
             self.dataset = self._init_dataset()
 
         worker_info = torch.utils.data.get_worker_info()
-        if worker_info is not None:
-            iterator = iter(self.dataset)
+        if worker_info is None:
+            # Single-process data loading, return the full iterator
+            iterator = iter(self.dataset.shuffle(seed=42, buffer_size=10_000))
         else:
-            iterator = iter(self.dataset)
+            ds_sharded = self.dataset.shuffle(
+                seed=42 + worker_info.id,
+                buffer_size=10_000
+            )
+            
+            import math
+
+            try:
+                ds_sharded = ds_sharded.shard(
+                    num_shards=worker_info.num_workers, 
+                    index=worker_info.id
+                )
+            except AttributeError:
+                pass 
+            
+            iterator = iter(ds_sharded)
 
         for sample in iterator:
             try:
