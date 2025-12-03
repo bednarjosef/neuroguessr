@@ -3,6 +3,7 @@ import torch
 from torch.utils.data import IterableDataset, DataLoader
 import webdataset as wds
 from datasets import load_dataset
+from itertools import islice  # <--- NEW IMPORT
 
 from clusters import get_closest_cluster
 
@@ -21,6 +22,10 @@ class OSVDataset(IterableDataset):
         return tar_files
 
     def __iter__(self):
+        # OSV uses WebDataset, which handles sharding automatically if tar_files list is passed correctly
+        # Usually checking worker_info here implies splitting tar_files list manually, 
+        # but wds.WebDataset often handles this if nodesplitter is default. 
+        # For safety/simplicity given your previous code, we keep this as is:
         dataset = wds.WebDataset(self.tar_files, resampled=True, shardshuffle=100, handler=wds.warn_and_continue).shuffle(10000).decode('pil').to_tuple('jpg', 'json')
         for img, meta in dataset:
             try:
@@ -37,7 +42,6 @@ class OSVDataset(IterableDataset):
                 img_tensor = self.transform(img.convert("RGB"))
                 yield img_tensor, cluster_label, lat, lon
             
-            # simply skip if any error
             except Exception:
                 continue
 
@@ -56,42 +60,27 @@ class StreetViewDataset(IterableDataset):
         self.dropped_count = 0
 
     def _init_dataset(self):
-        ds = load_dataset(self.repo_id, split=self.split, streaming=True)
-        ds = ds.shuffle(seed=42, buffer_size=10_000)
-        return ds
+        return load_dataset(self.repo_id, split=self.split, streaming=True)
 
     def __iter__(self):
         if self.dataset is None:
             self.dataset = self._init_dataset()
 
         worker_info = torch.utils.data.get_worker_info()
-        if worker_info is None:
-            # Single-process data loading, return the full iterator
-            iterator = iter(self.dataset.shuffle(seed=42, buffer_size=10_000))
-        else:
-            ds_sharded = self.dataset.shuffle(
-                seed=42 + worker_info.id,
-                buffer_size=10_000
-            )
-            
-            import math
+    
+        shuffled_ds = self.dataset.shuffle(seed=42, buffer_size=10_000)
+        
+        iterator = iter(shuffled_ds)
 
-            try:
-                ds_sharded = ds_sharded.shard(
-                    num_shards=worker_info.num_workers, 
-                    index=worker_info.id
-                )
-            except AttributeError:
-                pass 
-            
-            iterator = iter(ds_sharded)
+        if worker_info is not None:
+            iterator = islice(iterator, worker_info.id, None, worker_info.num_workers)
 
         for sample in iterator:
             try:
                 total = self.kept_count + self.dropped_count
                 if total > 0 and total % 1000 == 0:
-                     print(f"Worker stats: Kept {self.kept_count} | Dropped {self.dropped_count} | Pass Rate: {self.kept_count/total:.1%}")
-                
+                    print(f"Worker stats: Kept {self.kept_count} | Dropped {self.dropped_count} | Pass Rate: {self.kept_count/total:.1%}")
+
                 country = sample.get('country_code')
                 if not country or country not in self.countries:
                     self.dropped_count += 1
@@ -100,7 +89,7 @@ class StreetViewDataset(IterableDataset):
                 lat, lon = sample.get('latitude'), sample.get('longitude')
                 if lat is None or lon is None:
                     continue
-
+                
                 self.kept_count += 1
 
                 cluster_label = get_closest_cluster(lat, lon, self.cluster_centers)                
@@ -109,9 +98,9 @@ class StreetViewDataset(IterableDataset):
                 yield img_tensor, cluster_label, torch.tensor(lat), torch.tensor(lon)
 
             except Exception as e:
+                # Optional: reduce verbosity if too many errors
                 print(f"Skipping bad {self.split} sample: {e}") 
                 continue
-
 
 
 def create_osv_dataloader(CONFIG, tar_directory, cluster_centers, transform, workers):
