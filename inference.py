@@ -240,7 +240,7 @@ def main():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/neuroguessr_1024classes_clipL_best.pth",
+        default="models/neuroguessr-1024-large-streetview-pretrained-best.pth",
         help="Path to the .pth checkpoint (state_dict) to load.",
     )
     args = parser.parse_args()

@@ -37,6 +37,21 @@ CONFIG = {
 }
 
 
+def load_model(ckpt_path, model, device):
+    raw_state = torch.load(ckpt_path, map_location=device)
+    fixed_state = {}
+    for k, v in raw_state.items():
+        new_k = k
+        if new_k.startswith("_orig_mod."):
+            new_k = new_k[len("_orig_mod."):]
+        fixed_state[new_k] = v
+
+    res = model.load_state_dict(fixed_state, strict=False)
+    print("Missing:", res.missing_keys)
+    print("Unexpected:", res.unexpected_keys)
+    return model
+
+
 def train():
     torch.set_float32_matmul_precision('high')
     torch.backends.cudnn.benchmark = True
@@ -48,6 +63,10 @@ def train():
     # init model
     print('Initializing model...')
     model = CLIPModel(CONFIG).to(CONFIG['device'])
+
+    # load from checkpoint
+    model = load_model('models/neuroguessr-1024-large-osv-pretrained.pth', model, CONFIG['device'])
+
     model = torch.compile(model)
 
     train_transform = model.train_transform
