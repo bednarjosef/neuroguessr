@@ -118,7 +118,7 @@ def train():
     model.train()
     optimizer.zero_grad()
     best_median_km = float('inf')
-    seen_clusters = np.zeros(CONFIG['clusters'], dtype=bool)
+    seen_clusters = np.zeros(CONFIG['classes'], dtype=bool)
 
     for step, batch in enumerate(train_loader):
         if step >= (CONFIG['steps'] * CONFIG['accum_steps']):

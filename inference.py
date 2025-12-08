@@ -18,7 +18,7 @@ import folium
 # Import your model + clusters
 from model_clip import CLIPModel
 # from model_clip_res_unfrozen import ResCLIPModel
-from clusters import get_clusters, xyz_to_latlon
+from clusters import get_clusters, xyz_to_latlon, CLASS_CENTERS_XYZ
 
 
 # -----------------------
@@ -48,7 +48,7 @@ def build_config():
         "max_lr_head": 1e-4,
         "batch_size": 512,
         "accum_steps": 1,
-        "clusters": 1024,
+        "classes": 2122,
         "tau_km": 150,
         "model": "ViT-L/14@336px",
     }
@@ -88,11 +88,12 @@ def load_model_and_clusters(ckpt_path: str):
     model.eval()
 
     print("Loading cluster centers with get_clusters...")
-    cluster_centers = get_clusters(config)  # expected shape (clusters, 2) => [lat, lon]
-    if isinstance(cluster_centers, torch.Tensor):
-        cluster_centers = cluster_centers.cpu().numpy()
-    else:
-        cluster_centers = np.asarray(cluster_centers)
+    cluster_centers = CLASS_CENTERS_XYZ
+    # cluster_centers = get_clusters(config)  # expected shape (clusters, 2) => [lat, lon]
+    # if isinstance(cluster_centers, torch.Tensor):
+    #     cluster_centers = cluster_centers.cpu().numpy()
+    # else:
+    #     cluster_centers = np.asarray(cluster_centers)
 
     if cluster_centers.shape[1] < 2:
         raise ValueError(
@@ -240,7 +241,7 @@ def main():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/neuroguessr-1024-large-streetview-pretrained-best.pth",
+        default="models/neuroguessr-1024-large-streetview-h3-best.pth",
         help="Path to the .pth checkpoint (state_dict) to load.",
     )
     args = parser.parse_args()
