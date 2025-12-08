@@ -4,15 +4,15 @@ from torch.utils.data import IterableDataset, DataLoader
 import webdataset as wds
 from datasets import load_dataset
 
-from clusters import get_closest_cluster
+from clusters import latlon_to_class
 
 
 class OSVDataset(IterableDataset):
-    def __init__(self, countries, tar_directory, cluster_centers, transform):
+    def __init__(self, countries, tar_directory, transform):
         self.countries = countries
         self.tar_directory = tar_directory
         self.tar_files = self._find_files()
-        self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
+        # self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
         self.transform = transform
 
     def _find_files(self):
@@ -32,7 +32,7 @@ class OSVDataset(IterableDataset):
                 if lat is None or lon is None:
                     continue
 
-                cluster_label = get_closest_cluster(lat, lon, self.cluster_centers)
+                cluster_label = latlon_to_class(lat, lon)
                 
                 img_tensor = self.transform(img.convert("RGB"))
                 yield img_tensor, cluster_label, lat, lon
@@ -43,10 +43,10 @@ class OSVDataset(IterableDataset):
 
 
 class StreetViewDataset(IterableDataset):
-    def __init__(self, repo_id, countries, cluster_centers, transform, split="train"):
+    def __init__(self, repo_id, countries, transform, split="train"):
         self.repo_id = repo_id
         self.countries = set(countries)
-        self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
+        # self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
         self.transform = transform
         self.split = split
     
@@ -59,10 +59,6 @@ class StreetViewDataset(IterableDataset):
         return ds
 
     def __iter__(self):
-        if self.dataset is None:
-            self.dataset = self._init_dataset()
-
-        # worker_info = torch.utils.data.get_worker_info()
         if self.dataset is None:
             self.dataset = self._init_dataset()
 
@@ -82,23 +78,23 @@ class StreetViewDataset(IterableDataset):
                 if lat is None or lon is None:
                     continue
 
-                cluster_label = get_closest_cluster(lat, lon, self.cluster_centers)                
+                class_label = latlon_to_class(lat, lon)                
                 img_tensor = self.transform(sample['image'].convert("RGB"))
                 
-                yield img_tensor, cluster_label, torch.tensor(lat), torch.tensor(lon)
+                yield img_tensor, class_label, torch.tensor(lat), torch.tensor(lon)
 
             except Exception as e:
                 print(f"Skipping bad {self.split} sample: {e}") 
                 continue
 
 
-def create_osv_dataloader(CONFIG, tar_directory, cluster_centers, transform, workers):
-    dataset = OSVDataset(CONFIG['countries'], tar_directory, cluster_centers, transform)
+def create_osv_dataloader(CONFIG, tar_directory, transform, workers):
+    dataset = OSVDataset(CONFIG['countries'], tar_directory, transform)
     loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True)
     return loader
 
 
-def create_streetview_dataloader(CONFIG, ds_dir, split, cluster_centers, transform, workers):
-    dataset = StreetViewDataset(ds_dir, CONFIG['countries'], cluster_centers, transform, split)
+def create_streetview_dataloader(CONFIG, ds_dir, split, transform, workers):
+    dataset = StreetViewDataset(ds_dir, CONFIG['countries'], transform, split)
     loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True)
     return loader

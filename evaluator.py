@@ -8,46 +8,44 @@ from PIL import Image
 from torch.utils.data import DataLoader, Dataset, IterableDataset
 from datasets import load_from_disk
 
-from clusters import latlon_to_xyz, get_closest_cluster
+from clusters import CLASS_CENTERS_XYZ
 from dataset import create_streetview_dataloader
 import glob
 import webdataset as wds
 
+# class LocalValDataset(Dataset):
+#     def __init__(self, hf_dir, transform, cluster_centers):
+#         super().__init__()
+#         self.ds = load_from_disk(hf_dir)
+#         self.transform = transform
+#         self.centers = torch.tensor(cluster_centers, dtype=torch.float32)
 
+#     def __len__(self):
+#         return len(self.ds)
 
-class LocalValDataset(Dataset):
-    def __init__(self, hf_dir, transform, cluster_centers):
-        super().__init__()
-        self.ds = load_from_disk(hf_dir)
-        self.transform = transform
-        self.centers = torch.tensor(cluster_centers, dtype=torch.float32)
+#     def __getitem__(self, idx):
+#         ex = self.ds[idx]
+#         img_path = ex["image_path"]
+#         lat = float(ex["latitude"])
+#         lon = float(ex["longitude"])
 
-    def __len__(self):
-        return len(self.ds)
+#         img = Image.open(img_path).convert("RGB")
+#         img_t = self.transform(img)
+#         label_loc = get_closest_cluster(lat, lon, self.centers)
 
-    def __getitem__(self, idx):
-        ex = self.ds[idx]
-        img_path = ex["image_path"]
-        lat = float(ex["latitude"])
-        lon = float(ex["longitude"])
-
-        img = Image.open(img_path).convert("RGB")
-        img_t = self.transform(img)
-        label_loc = get_closest_cluster(lat, lon, self.centers)
-
-        return img_t, label_loc, lat, lon
+#         return img_t, label_loc, lat, lon
 
 
 class Evaluator:
-    def __init__(self, CONFIG, cluster_centers, transform, val_dir):
-        batch_size = CONFIG['batch_size']
+    def __init__(self, CONFIG, transform, val_dir):
         self.device = CONFIG['device']
         
         # self.dataset = LocalValDataset(val_dir, transform, cluster_centers)
         # self.loader = DataLoader(self.dataset, batch_size=batch_size, num_workers=4)
-        self.loader = create_streetview_dataloader(CONFIG, val_dir, 'val', cluster_centers, transform, workers=12)
+        self.loader = create_streetview_dataloader(CONFIG, val_dir, 'val', transform, workers=12)
 
-        self.centers_gpu = torch.tensor(cluster_centers, device=self.device, dtype=torch.float32)
+        # self.centers_gpu = torch.tensor(cluster_centers, device=self.device, dtype=torch.float32)
+        self.centers_gpu = torch.tensor(CLASS_CENTERS_XYZ, device=self.device, dtype=torch.float32)
 
     def haversine(self, lat1, lon1, lat2, lon2):
         R = 6371
@@ -57,22 +55,6 @@ class Evaluator:
         a = np.sin(dphi/2)**2 + np.cos(phi1)*np.cos(phi2)*np.sin(dlambda/2)**2
         c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
         return R * c
-
-    def get_coords_from_indices(self, indices):
-        """
-        Input: Indices tensor [Batch, K]
-        Output: Lats, Lons [Batch, K] (numpy arrays)
-        """
-        # Look up centers
-        centers = self.centers_gpu[indices] # [Batch, K, 3]
-        
-        z = centers[:, :, 2]
-        y = centers[:, :, 1]
-        x = centers[:, :, 0]
-        
-        lats = torch.rad2deg(torch.asin(z)).cpu().numpy()
-        lons = torch.rad2deg(torch.atan2(y, x)).cpu().numpy()
-        return lats, lons
 
     def calculate_consensus_distance(self, top_k_indices, true_lats, true_lons):
         """
