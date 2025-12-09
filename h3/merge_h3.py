@@ -7,7 +7,7 @@ import h3
 # =========================
 # CONFIG
 # =========================
-COUNTS_JSON_PATH = "h3_counts_res2.json"  # path to your counts JSON
+COUNTS_JSON_PATH = "h3/h3_counts_res2.json"  # path to your counts JSON
 H3_RESOLUTION = 2                          # resolution used for those counts
 MIN_SAMPLES = 150                          # tweak this (e.g. 100, 200, 300)
 MAX_NEIGHBOR_RING = 50                      # how far we look for big neighbors

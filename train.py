@@ -11,8 +11,8 @@ from loss import PIGEONLoss
 
 import wandb
 
-ds_dir = 'josefbednar/world-streetview-500k'
-val_directory = 'josefbednar/world-streetview-500k'
+ds_dir = 'josefbednar/streetview-acw-300k'
+val_directory = 'josefbednar/streetview-acw-300k'
 
 countries = [
     'AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG', 'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI', 'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL', 'IT', 'JP', 'JO', 'KE', 'KG', 'LV', 'LB', 'LS', 'LI', 'LT', 'LU', 'MY', 'MX', 'MN', 'ME', 'NA', 'NL', 'NZ', 'NG', 'MK', 'NO', 'OM', 'PS', 'PA', 'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS', 'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR', 'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN',
@@ -24,7 +24,7 @@ CONFIG = {
     'eval_interval': 100,
     'countries': countries,
     'num_countries': len(countries),
-    'steps': 3500,
+    'steps': 2000,
     'max_lr_backbone': 3e-6,
     'max_lr_head': 3e-4,
     'batch_size': 512,

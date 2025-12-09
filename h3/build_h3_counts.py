@@ -5,7 +5,7 @@ from tqdm.auto import tqdm
 import h3
 import json
 
-DATASET_NAME = "josefbednar/world-streetview-500k"  # TODO
+DATASET_NAME = "josefbednar/streetview-acw-300k"  # TODO
 TRAIN_SPLIT = "train"                        # or whatever you called it
 H3_RESOLUTION = 2                            # try 4 or 5
 
@@ -31,5 +31,5 @@ if __name__ == "__main__":
     print(f"Unique non-empty H3 cells: {len(counts)}")
 
     # Save counts to JSON
-    with open("h3_counts_res2.json", "w") as f:
+    with open("h3/h3_counts_res2.json", "w") as f:
         json.dump(counts, f)

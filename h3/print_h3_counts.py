@@ -1,7 +1,7 @@
 import json
 from statistics import mean, median
 
-COUNTS_PATH = "h3_counts_res2.json"  # change if your file is named differently
+COUNTS_PATH = "h3/h3_counts_res2.json"  # change if your file is named differently
 
 # Simple percentile function (no numpy needed)
 def percentile(sorted_list, p):
