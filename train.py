@@ -22,12 +22,13 @@ CONFIG = {
     'eval_interval': 100,
     'countries': countries,
     'num_countries': len(countries),
-    'steps': 2000,
+    'steps': 32000,
     'lr_head': 1e-3,
-    'lr_group_decay': 0.9,
+    'lr_backbone': 1e-5,
+    'lr_group_decay': 0.8,
     'weight_decay': 0.05,
-    'batch_size': 512,
-    'accum_steps': 1,
+    'batch_size': 32,
+    'accum_steps': 16,
     'classes': 0,
     'tau_km': 75,
     'model': 'ViT-L/14@336px',
@@ -56,12 +57,13 @@ def load_model(ckpt_path, model, device):
 
 
 def get_grouped_params(CONFIG, model):
-    head_lr = CONFIG['lr_head']
+    head_lr = CONFIG['lr_head']         # 1e-3
+    backbone_lr = CONFIG['lr_backbone'] # 1e-5
     decay_factor = CONFIG['lr_group_decay']
 
     param_groups = []
     
-    # Classifier Head (Always Highest LR)
+    # 1. Classifier Head (Uses High LR)
     param_groups.append({
         'params': [p for p in model.classifier.parameters() if p.requires_grad], 
         'lr': head_lr
@@ -69,23 +71,29 @@ def get_grouped_params(CONFIG, model):
     
     visual = model.vision_encoder
 
-    # Group 1: Output Layers (ln_post, proj)
+    # 2. Output Layers (ln_post, proj) - Use backbone_lr (or slightly higher)
     post_params = [p for p in visual.ln_post.parameters() if p.requires_grad]
     if visual.proj is not None and visual.proj.requires_grad:
         post_params.append(visual.proj)
         
-    param_groups.append({'params': post_params, 'lr': head_lr * decay_factor})
+    param_groups.append({
+        'params': post_params, 
+        'lr': backbone_lr
+    })
     
-    # Group 2: Transformer Blocks (Decaying LR)
+    # 3. Transformer Blocks (Decay from backbone_lr)
     blocks = list(visual.transformer.resblocks)
     for i, block in enumerate(reversed(blocks)):
-        current_lr = head_lr * (decay_factor ** (i + 2))
+        # i=0 is the top layer.
+        # We start at backbone_lr and decay downwards
+        current_lr = backbone_lr * (decay_factor ** i)
+        
         param_groups.append({
             'params': [p for p in block.parameters() if p.requires_grad],
             'lr': current_lr
         })
         
-    # Group 3: Input/Stem (conv1, ln_pre, embeddings)
+    # 4. Input/Stem (Lowest LR)
     stem_params = []
     stem_params.extend([p for p in visual.conv1.parameters() if p.requires_grad])
     stem_params.extend([p for p in visual.ln_pre.parameters() if p.requires_grad])
@@ -94,7 +102,7 @@ def get_grouped_params(CONFIG, model):
     if visual.positional_embedding.requires_grad:
         stem_params.append(visual.positional_embedding)
         
-    stem_lr = head_lr * (decay_factor ** (len(blocks) + 2))
+    stem_lr = backbone_lr * (decay_factor ** len(blocks))
     param_groups.append({'params': stem_params, 'lr': stem_lr})
 
     return param_groups
@@ -126,34 +134,17 @@ def train():
     print('Initializing evaluator...')
     evaluator = Evaluator(CONFIG, h3_classifier, eval_transform, val_directory)
 
-    # optimizer
-    # backbone_params = []
-    # head_params = []
-
-    # for name, param in model.named_parameters():
-    #     if not param.requires_grad:
-    #         continue
-
-    #     if 'backbone' in name:
-    #         backbone_params.append(param)
-    #     else:
-    #         head_params.append(param)
-
-    # optimizer = optim.AdamW(
-    #     [
-    #         {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
-    #         {"params": head_params, "lr": CONFIG['max_lr_head']},
-    #     ],
-    #     weight_decay=0.05,
-    # )
-
     param_groups = get_grouped_params(CONFIG, model)
     optimizer = torch.optim.AdamW(param_groups, weight_decay=CONFIG['weight_decay'])
 
     print('Initializing scheduler...')
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
-        T_max=CONFIG["steps"],
+        max_lr=[g['lr'] for g in param_groups],
+        total_steps=CONFIG["steps"] // CONFIG['accum_steps'],
+        pct_start=0.1,
+        div_factor=25.0,     # Starts at max_lr / 25
+        final_div_factor=100.0 # Ends at max_lr / 100
     )
 
     print('Initializing PIGEON loss...')
@@ -174,18 +165,8 @@ def train():
     seen_clusters = np.zeros(CONFIG['classes'], dtype=bool)
 
     for step, batch in enumerate(train_loader):
-        if step >= (CONFIG['steps'] * CONFIG['accum_steps']):
+        if step >= (CONFIG['steps']):
             break
-
-        # if step < (CONFIG['unfreeze_after'] + 1):
-        #     model.backbone.eval() # Tell backbone to act frozen (norm layers)
-        #     for p in backbone_params:
-        #         p.requires_grad = False
-        # elif step == (CONFIG['unfreeze_after'] + 1):
-        #     print("❄️ -> 🔥 Unfreezing Backbone now!")
-        #     model.backbone.train()
-        #     for p in backbone_params:
-        #         p.requires_grad = True
 
         images = batch[0].to(CONFIG['device'], non_blocking=True)
         true_clusters = batch[1].to(CONFIG['device'], non_blocking=True)
@@ -202,6 +183,8 @@ def train():
         scaler.scale(smooth_loss).backward()
 
         if (step + 1) % CONFIG['accum_steps'] == 0:
+            accum_step = int((step + 1) / CONFIG['accum_steps'])
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
@@ -214,21 +197,21 @@ def train():
             with torch.no_grad():  # TODO: softmax?
                 preds = logits.argmax(dim=1)
                 train_acc = (preds == true_clusters).float().mean().item() * 100
-            
+
             wandb.log({
                 "loss/total": loss_val,
                 "lr/backbone": curr_lr_backbone,
                 "lr/head": curr_lr_head,
                 "train/acc_top1": train_acc,
-            }, step=step+1)
+            }, step=accum_step)
 
-            if (step + 1) % 10 == 0:
-                print(f"Step {step+1}/{CONFIG['steps'] * CONFIG['accum_steps']} | Loss: {loss_val:.6f} | Train acc: {train_acc:.2f}%")
-            
+            if accum_step % 10 == 0:
+                print(f"Step {accum_step}/{CONFIG['steps'] // CONFIG['accum_steps']} | Loss: {loss_val:.6f} | Train acc: {train_acc:.2f}%")
+        
             # evaluate
-            if evaluator and (((step + 1) % CONFIG['eval_interval'] == 0) or step == 0):
+            if (accum_step % CONFIG['eval_interval'] == 0) or step == 0:
                 metrics = evaluator.run(model)
-                wandb.log(metrics, step=step+1)
+                wandb.log(metrics, step=accum_step)
 
                 current_median = metrics['val/top1_median_km']
                 
@@ -238,11 +221,11 @@ def train():
                 # save best
                 if current_median < best_median_km:
                     best_median_km = current_median
-                    torch.save(model.state_dict(), "neuroguessr-1024-large-streetview-h3-best.pth")
+                    torch.save(model.state_dict(), "neuroguessr-861-large-acw-streetview-h3-unfrozen-2-best.pth")
                     print(f"🔥 New Best Model! Median Error: {best_median_km:.0f} km")
     
 
-    torch.save(model.state_dict(), "neuroguessr-1024-large-streetview-h3-final.pth")
+    torch.save(model.state_dict(), "neuroguessr-861-large-acw-streetview-h3-unfrozen-2-final.pth")
     wandb.finish()
     print("Training Complete.")
 

@@ -16,9 +16,10 @@ from tkinter import messagebox
 import folium
 
 # Import your model + clusters
+from h3_classification import H3Classifier
 from model_clip import CLIPModel
 # from model_clip_res_unfrozen import ResCLIPModel
-from clusters import get_clusters, xyz_to_latlon, CLASS_CENTERS_XYZ
+from clusters import get_clusters, xyz_to_latlon
 
 
 # -----------------------
@@ -48,9 +49,13 @@ def build_config():
         "max_lr_head": 1e-4,
         "batch_size": 512,
         "accum_steps": 1,
-        "classes": len(CLASS_CENTERS_XYZ),
-        "tau_km": 150,
+        "classes": 861,
+        "tau_km": 75,
         "model": "ViT-L/14@336px",
+        'backbone_unfrozen': True,
+        'h3_resolution': 2,
+        'h3_mappings': 'h3_utils/h3_to_class_res2_min200_ring20.json',
+        'h3_counts': 'h3_utils/h3_counts_res2.json',
     }
     return config
 
@@ -64,6 +69,7 @@ def load_model_and_clusters(ckpt_path: str):
     Load CLIPModel and cluster centers.
     """
     config = build_config()
+    classifier = H3Classifier(config)
     device = config["device"]
 
     print(f"Using device: {device}")
@@ -71,29 +77,53 @@ def load_model_and_clusters(ckpt_path: str):
     model = CLIPModel(config).to(device)
 
     print(f"Loading checkpoint from: {ckpt_path}")
-    state_dict = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device)
 
-    # In case the state_dict was saved from a compiled model, keys should still match.
-    raw_state = torch.load(ckpt_path, map_location=device)
+    # 1. Handle if checkpoint is nested (e.g., PyTorch Lightning saves in 'state_dict')
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        raw_state = checkpoint["state_dict"]
+    else:
+        raw_state = checkpoint
+
     fixed_state = {}
     for k, v in raw_state.items():
         new_k = k
+        # 2. Clean standard prefixes
         if new_k.startswith("_orig_mod."):
             new_k = new_k[len("_orig_mod."):]
+        if new_k.startswith("module."):
+            new_k = new_k[len("module."):]
+        
+        # 3. Handle 'model.' prefix mismatch
+        # If your checkpoint keys look like 'model.visual...' but your model expects 'visual...'
+        # (or vice-versa), this aligns them.
+        # Check if the model has a 'model' attribute to decide.
+        if hasattr(model, 'model') and not new_k.startswith('model.'):
+             # If model wrapper has .model but checkpoint doesn't, add it (rare)
+             pass 
+        elif not hasattr(model, 'model') and new_k.startswith('model.'):
+             # Common case: checkpoint has 'model.visual' but inference model expects 'visual'
+             new_k = new_k[len("model."):]
+
         fixed_state[new_k] = v
 
-    res = model.load_state_dict(fixed_state, strict=False)
-    print("Missing:", res.missing_keys)
-    print("Unexpected:", res.unexpected_keys)
+    # 4. Use strict=True to ensure ALL weights are replaced. 
+    # If this errors, it means the keys don't match, and you shouldn't proceed 
+    # (otherwise you'd be using untuned weights).
+    try:
+        model.load_state_dict(fixed_state, strict=True)
+        print("Success: All weights (including ViT) loaded strictly.")
+    except RuntimeError as e:
+        print(f"Strict loading failed. Missing/Unexpected keys:\n{e}")
+        # Fallback to non-strict if you strictly only want to load what matches, 
+        # but be warned this might leave ViT layers default.
+        res = model.load_state_dict(fixed_state, strict=False)
+        print("Loaded with strict=False. Missing keys (weights not updated):", res.missing_keys)
+
     model.eval()
 
     print("Loading cluster centers with get_clusters...")
-    cluster_centers = CLASS_CENTERS_XYZ
-    # cluster_centers = get_clusters(config)  # expected shape (clusters, 2) => [lat, lon]
-    # if isinstance(cluster_centers, torch.Tensor):
-    #     cluster_centers = cluster_centers.cpu().numpy()
-    # else:
-    #     cluster_centers = np.asarray(cluster_centers)
+    cluster_centers = classifier.CLASS_CENTERS_XYZ
 
     if cluster_centers.shape[1] < 2:
         raise ValueError(
@@ -241,7 +271,7 @@ def main():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/neuroguessr-861-large-acw-streetview-h3-best.pth",
+        default="models/neuroguessr-861-large-acw-streetview-h3-unfrozen-best.pth",
         help="Path to the .pth checkpoint (state_dict) to load.",
     )
     args = parser.parse_args()
