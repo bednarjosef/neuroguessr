@@ -48,7 +48,7 @@ def build_config():
         "max_lr_head": 1e-4,
         "batch_size": 512,
         "accum_steps": 1,
-        "classes": 2122,
+        "classes": len(CLASS_CENTERS_XYZ),
         "tau_km": 150,
         "model": "ViT-L/14@336px",
     }
@@ -241,7 +241,7 @@ def main():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/neuroguessr-1024-large-streetview-h3-best.pth",
+        default="models/neuroguessr-861-large-acw-streetview-h3-best.pth",
         help="Path to the .pth checkpoint (state_dict) to load.",
     )
     args = parser.parse_args()

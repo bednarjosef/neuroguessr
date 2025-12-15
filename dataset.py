@@ -4,11 +4,12 @@ from torch.utils.data import IterableDataset, DataLoader
 import webdataset as wds
 from datasets import load_dataset
 
-from clusters import latlon_to_class
+# from clusters import latlon_to_class
 
 
 class OSVDataset(IterableDataset):
-    def __init__(self, countries, tar_directory, transform):
+    def __init__(self, classifier, countries, tar_directory, transform):
+        self.classifier = classifier
         self.countries = countries
         self.tar_directory = tar_directory
         self.tar_files = self._find_files()
@@ -32,7 +33,7 @@ class OSVDataset(IterableDataset):
                 if lat is None or lon is None:
                     continue
 
-                cluster_label = latlon_to_class(lat, lon)
+                cluster_label = self.classifier.latlon_to_class(lat, lon)
                 
                 img_tensor = self.transform(img.convert("RGB"))
                 yield img_tensor, cluster_label, lat, lon
@@ -43,7 +44,8 @@ class OSVDataset(IterableDataset):
 
 
 class StreetViewDataset(IterableDataset):
-    def __init__(self, repo_id, countries, transform, split="train"):
+    def __init__(self, classifier, repo_id, countries, transform, split="train"):
+        self.classifier = classifier
         self.repo_id = repo_id
         self.countries = set(countries)
         # self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
@@ -54,7 +56,7 @@ class StreetViewDataset(IterableDataset):
 
     def _init_dataset(self):
         ds = load_dataset(self.repo_id, split=self.split)
-        ds = ds.to_iterable_dataset(num_shards=393)
+        ds = ds.to_iterable_dataset(num_shards=230)
         ds = ds.shuffle(seed=42, buffer_size=10_000)
         return ds
 
@@ -78,7 +80,7 @@ class StreetViewDataset(IterableDataset):
                 if lat is None or lon is None:
                     continue
 
-                class_label = latlon_to_class(lat, lon)                
+                class_label = self.classifier.latlon_to_class(lat, lon)                
                 img_tensor = self.transform(sample['image'].convert("RGB"))
                 
                 yield img_tensor, class_label, torch.tensor(lat), torch.tensor(lon)
@@ -88,13 +90,13 @@ class StreetViewDataset(IterableDataset):
                 continue
 
 
-def create_osv_dataloader(CONFIG, tar_directory, transform, workers):
-    dataset = OSVDataset(CONFIG['countries'], tar_directory, transform)
+def create_osv_dataloader(CONFIG, classifier, tar_directory, transform, workers):
+    dataset = OSVDataset(classifier, CONFIG['countries'], tar_directory, transform)
     loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True)
     return loader
 
 
-def create_streetview_dataloader(CONFIG, ds_dir, split, transform, workers):
-    dataset = StreetViewDataset(ds_dir, CONFIG['countries'], transform, split)
+def create_streetview_dataloader(CONFIG, classifier, ds_dir, split, transform, workers):
+    dataset = StreetViewDataset(classifier, ds_dir, CONFIG['countries'], transform, split)
     loader = DataLoader(dataset, CONFIG['batch_size'], num_workers=workers, pin_memory=True, prefetch_factor=4, persistent_workers=True)
     return loader

@@ -1,15 +1,13 @@
 import numpy as np
 import torch
 import torch.optim as optim
+import wandb
 
 from model_clip import CLIPModel
-from model_clip_res_unfrozen import ResCLIPModel
-from clusters import NUM_CLASSES
-from dataset import create_streetview_dataloader
+from h3_classification import H3Classifier
 from evaluator import Evaluator
 from loss import PIGEONLoss
-
-import wandb
+from dataset import create_streetview_dataloader
 
 ds_dir = 'josefbednar/streetview-acw-300k'
 val_directory = 'josefbednar/streetview-acw-300k'
@@ -25,15 +23,20 @@ CONFIG = {
     'countries': countries,
     'num_countries': len(countries),
     'steps': 2000,
-    'max_lr_backbone': 3e-6,
-    'max_lr_head': 3e-4,
+    'lr_head': 1e-3,
+    'lr_group_decay': 0.9,
+    'weight_decay': 0.05,
     'batch_size': 512,
     'accum_steps': 1,
-    'classes': NUM_CLASSES,
+    'classes': 0,
     'tau_km': 75,
     'model': 'ViT-L/14@336px',
     'unfrozen_layers': 2,
     'unfreeze_after': -10,
+    'backbone_unfrozen': True,
+    'h3_resolution': 2,
+    'h3_mappings': 'h3_utils/h3_to_class_res2_min200_ring20.json',
+    'h3_counts': 'h3_utils/h3_counts_res2.json',
 }
 
 
@@ -52,9 +55,56 @@ def load_model(ckpt_path, model, device):
     return model
 
 
+def get_grouped_params(CONFIG, model):
+    head_lr = CONFIG['lr_head']
+    decay_factor = CONFIG['lr_group_decay']
+
+    param_groups = []
+    
+    # Classifier Head (Always Highest LR)
+    param_groups.append({
+        'params': [p for p in model.classifier.parameters() if p.requires_grad], 
+        'lr': head_lr
+    })
+    
+    visual = model.vision_encoder
+
+    # Group 1: Output Layers (ln_post, proj)
+    post_params = [p for p in visual.ln_post.parameters() if p.requires_grad]
+    if visual.proj is not None and visual.proj.requires_grad:
+        post_params.append(visual.proj)
+        
+    param_groups.append({'params': post_params, 'lr': head_lr * decay_factor})
+    
+    # Group 2: Transformer Blocks (Decaying LR)
+    blocks = list(visual.transformer.resblocks)
+    for i, block in enumerate(reversed(blocks)):
+        current_lr = head_lr * (decay_factor ** (i + 2))
+        param_groups.append({
+            'params': [p for p in block.parameters() if p.requires_grad],
+            'lr': current_lr
+        })
+        
+    # Group 3: Input/Stem (conv1, ln_pre, embeddings)
+    stem_params = []
+    stem_params.extend([p for p in visual.conv1.parameters() if p.requires_grad])
+    stem_params.extend([p for p in visual.ln_pre.parameters() if p.requires_grad])
+    if visual.class_embedding.requires_grad:
+        stem_params.append(visual.class_embedding)
+    if visual.positional_embedding.requires_grad:
+        stem_params.append(visual.positional_embedding)
+        
+    stem_lr = head_lr * (decay_factor ** (len(blocks) + 2))
+    param_groups.append({'params': stem_params, 'lr': stem_lr})
+
+    return param_groups
+
 def train():
     torch.set_float32_matmul_precision('high')
     torch.backends.cudnn.benchmark = True
+
+    h3_classifier = H3Classifier(CONFIG)
+    CONFIG['classes'] = h3_classifier.NUM_CLASSES
 
     # init model
     print('Initializing model...')
@@ -70,32 +120,35 @@ def train():
 
     # data loader
     print('Initializing data loader...')
-    train_loader = create_streetview_dataloader(CONFIG, ds_dir, 'train', train_transform, workers=12)
+    train_loader = create_streetview_dataloader(CONFIG, h3_classifier, ds_dir, 'train', train_transform, workers=12)
 
     # evaluator
     print('Initializing evaluator...')
     evaluator = Evaluator(CONFIG, eval_transform, val_directory)
 
     # optimizer
-    backbone_params = []
-    head_params = []
+    # backbone_params = []
+    # head_params = []
 
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
+    # for name, param in model.named_parameters():
+    #     if not param.requires_grad:
+    #         continue
 
-        if 'backbone' in name:
-            backbone_params.append(param)
-        else:
-            head_params.append(param)
+    #     if 'backbone' in name:
+    #         backbone_params.append(param)
+    #     else:
+    #         head_params.append(param)
 
-    optimizer = optim.AdamW(
-        [
-            {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
-            {"params": head_params, "lr": CONFIG['max_lr_head']},
-        ],
-        weight_decay=0.05,
-    )
+    # optimizer = optim.AdamW(
+    #     [
+    #         {"params": backbone_params, "lr": CONFIG['max_lr_backbone']},
+    #         {"params": head_params, "lr": CONFIG['max_lr_head']},
+    #     ],
+    #     weight_decay=0.05,
+    # )
+
+    param_groups = get_grouped_params(CONFIG, model)
+    optimizer = torch.optim.AdamW(param_groups, weight_decay=CONFIG['weight_decay'])
 
     print('Initializing scheduler...')
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -124,15 +177,15 @@ def train():
         if step >= (CONFIG['steps'] * CONFIG['accum_steps']):
             break
 
-        if step < (CONFIG['unfreeze_after'] + 1):
-            model.backbone.eval() # Tell backbone to act frozen (norm layers)
-            for p in backbone_params:
-                p.requires_grad = False
-        elif step == (CONFIG['unfreeze_after'] + 1):
-            print("❄️ -> 🔥 Unfreezing Backbone now!")
-            model.backbone.train()
-            for p in backbone_params:
-                p.requires_grad = True
+        # if step < (CONFIG['unfreeze_after'] + 1):
+        #     model.backbone.eval() # Tell backbone to act frozen (norm layers)
+        #     for p in backbone_params:
+        #         p.requires_grad = False
+        # elif step == (CONFIG['unfreeze_after'] + 1):
+        #     print("❄️ -> 🔥 Unfreezing Backbone now!")
+        #     model.backbone.train()
+        #     for p in backbone_params:
+        #         p.requires_grad = True
 
         images = batch[0].to(CONFIG['device'], non_blocking=True)
         true_clusters = batch[1].to(CONFIG['device'], non_blocking=True)
@@ -148,7 +201,6 @@ def train():
 
         scaler.scale(smooth_loss).backward()
 
-        # update weights, log
         if (step + 1) % CONFIG['accum_steps'] == 0:
             scaler.step(optimizer)
             scaler.update()
@@ -162,15 +214,12 @@ def train():
             with torch.no_grad():  # TODO: softmax?
                 preds = logits.argmax(dim=1)
                 train_acc = (preds == true_clusters).float().mean().item() * 100
-                # num_seen = int(seen_clusters.sum())
-                
             
             wandb.log({
                 "loss/total": loss_val,
                 "lr/backbone": curr_lr_backbone,
                 "lr/head": curr_lr_head,
                 "train/acc_top1": train_acc,
-                # "train/seen_clusters": num_seen,
             }, step=step+1)
 
             if (step + 1) % 10 == 0:

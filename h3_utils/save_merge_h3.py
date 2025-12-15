@@ -7,10 +7,13 @@ import h3
 # =========================
 # CONFIG
 # =========================
-COUNTS_JSON_PATH = "h3/h3_counts_res2.json"  # path to your counts JSON
+COUNTS_JSON_PATH = "h3_counts_res2.json"  # path to your counts JSON
 H3_RESOLUTION = 2                          # resolution used for those counts
-MIN_SAMPLES = 150                          # tweak this (e.g. 100, 200, 300)
-MAX_NEIGHBOR_RING = 50                      # how far we look for big neighbors
+
+MIN_SAMPLES = 200                          # <- your new minimum
+MAX_NEIGHBOR_RING = 20                     # <- your big neighbor ring
+
+MAPPING_OUT_PATH = f"h3_to_class_res{H3_RESOLUTION}_min{MIN_SAMPLES}_ring{MAX_NEIGHBOR_RING}.json"
 
 # =========================
 # H3 compatibility helpers (v3 & v4)
@@ -89,7 +92,15 @@ print(f"Small cells with NO big neighbor within {MAX_NEIGHBOR_RING} rings: {unas
 print(f"Total cells with an assigned class: {len(h3_to_class)} out of {len(counts)}")
 
 # =========================
-# Build GeoDataFrame
+# Save mapping for training
+# =========================
+with open(MAPPING_OUT_PATH, "w") as f:
+    json.dump(h3_to_class, f)
+
+print(f"Saved mapping to: {MAPPING_OUT_PATH}")
+
+# =========================
+# Build GeoDataFrame (per hex)
 # =========================
 def h3_to_polygon(cell):
     boundary = h3_to_boundary(cell, geo_json=True)  # list of (lon, lat)
@@ -115,113 +126,41 @@ for cell, c in counts.items():
 gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
 print(f"GeoDataFrame rows (assigned cells): {len(gdf)}")
 
-# =========================
-# PLOT 1: Images per cell (clipped)
-# =========================
-fig, ax = plt.subplots(figsize=(16, 8))
-
-gdf["count_clipped"] = gdf["count"].clip(upper=gdf["count"].quantile(0.99))
-gdf.plot(
-    ax=ax,
-    column="count_clipped",
-    cmap="viridis",
-    alpha=0.8,
-    linewidth=0.05,
-    edgecolor="black",
-    legend=True,
-)
-
-ax.set_title(f"H3 (res={H3_RESOLUTION}) – images per cell (clipped 99th percentile)", fontsize=16)
-ax.set_xlabel("Longitude")
-ax.set_ylabel("Latitude")
-plt.show()
+gdf["geometry"] = gdf["geometry"].buffer(0)
 
 # =========================
-# PLOT 2: Final geo-classes (merged)
+# Dissolve by class_id -> one polygon/multipolygon per final class
+# =========================
+gdf_classes = gdf.dissolve(by="class_id")  # index is class_id
+gdf_classes = gdf_classes.reset_index()
+print(f"Number of final classes: {len(gdf_classes)}")
+
+# =========================
+# Plot: one outline per merged class
 # =========================
 fig, ax = plt.subplots(figsize=(16, 8))
 
-gdf_sorted = gdf.sort_values("class_id")
-gdf_sorted.plot(
+# light fill per class (colors repeat, that's ok)
+gdf_classes.plot(
     ax=ax,
     column="class_id",
     cmap="tab20",
-    alpha=0.8,
-    linewidth=0.05,
-    edgecolor="black",
-    categorical=True,
-    legend=False,
-)
-
-ax.set_title(
-    f"Final merged geo-classes (MIN_SAMPLES={MIN_SAMPLES}, res={H3_RESOLUTION})",
-    fontsize=16,
-)
-ax.set_xlabel("Longitude")
-ax.set_ylabel("Latitude")
-plt.show()
-
-# =========================
-# PLOT 3: Big base cells vs merged small cells
-# =========================
-fig, ax = plt.subplots(figsize=(16, 8))
-
-gdf_big = gdf[gdf["is_big"]]
-gdf_small = gdf[~gdf["is_big"]]
-
-gdf_small.plot(
-    ax=ax,
-    color="lightcoral",
-    alpha=0.5,
+    alpha=0.6,
     linewidth=0.0,
-    label="Merged (small) cells",
-)
-
-gdf_big.plot(
-    ax=ax,
-    color="steelblue",
-    alpha=0.9,
-    linewidth=0.2,
-    edgecolor="black",
-    label=f"Base cells (≥{MIN_SAMPLES} imgs)",
-)
-
-ax.legend()
-ax.set_title(
-    f"H3 cells: base vs merged small cells (MIN_SAMPLES={MIN_SAMPLES})",
-    fontsize=16,
-)
-ax.set_xlabel("Longitude")
-ax.set_ylabel("Latitude")
-plt.show()
-
-
-
-
-fig, ax = plt.subplots(figsize=(16, 8))
-
-# fill polygons by class_id (colors will repeat, but that’s fine)
-gdf_sorted = gdf.sort_values("class_id")
-gdf_sorted.plot(
-    ax=ax,
-    column="class_id",
-    cmap="tab20",
-    alpha=0.9,
-    linewidth=0.0,      # no edge color in this layer
     edgecolor="none",
     categorical=True,
     legend=False,
 )
 
-# overlay only the boundaries in black so classes are separated by lines
-gdf.boundary.plot(
+# single border around each merged class
+gdf_classes.boundary.plot(
     ax=ax,
     color="black",
-    linewidth=0.15,      # make this bigger/smaller if you want
+    linewidth=0.5,
 )
 
 ax.set_title(
-    f"Final merged geo-classes (MIN_SAMPLES={MIN_SAMPLES}, res={H3_RESOLUTION})",
+    f"Merged geo-classes outlines (MIN_SAMPLES={MIN_SAMPLES}, res={H3_RESOLUTION})",
     fontsize=16,
 )
 ax.set_xlabel("Longitude")

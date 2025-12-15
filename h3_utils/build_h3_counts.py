@@ -31,5 +31,5 @@ if __name__ == "__main__":
     print(f"Unique non-empty H3 cells: {len(counts)}")
 
     # Save counts to JSON
-    with open("h3/h3_counts_res2.json", "w") as f:
+    with open("h3_utils/h3_counts_res2.json", "w") as f:
         json.dump(counts, f)

@@ -17,8 +17,9 @@ class CLIPModel(nn.Module):
         self.vision_dim = self.vision_encoder.output_dim
 
         # freeze backbone
-        for p in self.vision_encoder.parameters():
-            p.requires_grad = False
+        if not CONFIG['backbone_unfrozen']:
+            for p in self.vision_encoder.parameters():
+                p.requires_grad = False
 
         self.classifier = nn.Linear(self.vision_dim, self.num_classes)
 

@@ -1,14 +1,9 @@
-import os, torch, json, h3
+import os, torch
 import torch
 import pandas as pd
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 from huggingface_hub import hf_hub_download
-
-
-H3_RESOLUTION = 3
-MAPPING_PATH = "h3_to_class_res3_min250_ring50.json"
-COUNTS_PATH = "h3_counts_train.json"
 
 
 def latlon_to_xyz(lat, lon):
@@ -113,90 +108,90 @@ def get_closest_cluster(lat, lon, cluster_centers):
 
 
 ## H3 UTILS
-with open(MAPPING_PATH) as f:
-    _raw = json.load(f)
+# with open(MAPPING_PATH) as f:
+#     _raw = json.load(f)
 
 
-H3_TO_CLASS = {cell: int(cls) for cell, cls in _raw.items()}
+# H3_TO_CLASS = {cell: int(cls) for cell, cls in _raw.items()}
 
-NUM_CLASSES = max(H3_TO_CLASS.values()) + 1
+# NUM_CLASSES = max(H3_TO_CLASS.values()) + 1
 
-with open(COUNTS_PATH) as f:
-    _counts = json.load(f)
+# with open(COUNTS_PATH) as f:
+#     _counts = json.load(f)
 
-COUNTS = {cell: int(c) for cell, c in _counts.items() if cell in H3_TO_CLASS}
+# COUNTS = {cell: int(c) for cell, c in _counts.items() if cell in H3_TO_CLASS}
 
-import math
-import numpy as np
+# import math
+# import numpy as np
 
-# number of classes from the mapping
-NUM_CLASSES = max(H3_TO_CLASS.values()) + 1
+# # number of classes from the mapping
+# NUM_CLASSES = max(H3_TO_CLASS.values()) + 1
 
-# we do a *count-weighted* average of cell centers, then re-normalize to unit length
-sum_vec = np.zeros((NUM_CLASSES, 3), dtype=np.float64)
-sum_w = np.zeros(NUM_CLASSES, dtype=np.float64)
+# # we do a *count-weighted* average of cell centers, then re-normalize to unit length
+# sum_vec = np.zeros((NUM_CLASSES, 3), dtype=np.float64)
+# sum_w = np.zeros(NUM_CLASSES, dtype=np.float64)
 
-for cell, cls in H3_TO_CLASS.items():
-    # weight = how many images in this cell
-    w = COUNTS.get(cell, 1)
+# for cell, cls in H3_TO_CLASS.items():
+#     # weight = how many images in this cell
+#     w = COUNTS.get(cell, 1)
 
-    # center lat/lon of this H3 cell
-    lat, lon = h3.cell_to_latlng(cell)
-    lat_r = math.radians(float(lat))
-    lon_r = math.radians(float(lon))
+#     # center lat/lon of this H3 cell
+#     lat, lon = h3.cell_to_latlng(cell)
+#     lat_r = math.radians(float(lat))
+#     lon_r = math.radians(float(lon))
 
-    # convert to unit sphere xyz
-    x = math.cos(lat_r) * math.cos(lon_r)
-    y = math.cos(lat_r) * math.sin(lon_r)
-    z = math.sin(lat_r)
+#     # convert to unit sphere xyz
+#     x = math.cos(lat_r) * math.cos(lon_r)
+#     y = math.cos(lat_r) * math.sin(lon_r)
+#     z = math.sin(lat_r)
 
-    # accumulate weighted vector
-    sum_vec[cls, 0] += x * w
-    sum_vec[cls, 1] += y * w
-    sum_vec[cls, 2] += z * w
-    sum_w[cls] += w
+#     # accumulate weighted vector
+#     sum_vec[cls, 0] += x * w
+#     sum_vec[cls, 1] += y * w
+#     sum_vec[cls, 2] += z * w
+#     sum_w[cls] += w
 
-centers = np.zeros_like(sum_vec)
-for i in range(NUM_CLASSES):
-    if sum_w[i] > 0:
-        v = sum_vec[i] / sum_w[i]
-        norm = np.linalg.norm(v)
-        if norm > 0:
-            centers[i] = v / norm
-        else:
-            centers[i] = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-    else:
-        centers[i] = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+# centers = np.zeros_like(sum_vec)
+# for i in range(NUM_CLASSES):
+#     if sum_w[i] > 0:
+#         v = sum_vec[i] / sum_w[i]
+#         norm = np.linalg.norm(v)
+#         if norm > 0:
+#             centers[i] = v / norm
+#         else:
+#             centers[i] = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+#     else:
+#         centers[i] = np.array([1.0, 0.0, 0.0], dtype=np.float64)
 
-CLASS_CENTERS_XYZ = centers.astype(np.float32)  # shape: [num_classes, 3]
-
-
-def class_id_to_latlon(class_id: int):
-    """Representative center (lat, lon) for a class."""
-    x, y, z = CLASS_CENTERS_XYZ[class_id]
-    lat = math.degrees(math.asin(z))
-    lon = math.degrees(math.atan2(y, x))
-    return lat, lon
+# CLASS_CENTERS_XYZ = centers.astype(np.float32)  # shape: [num_classes, 3]
 
 
-def latlon_to_class(lat, lon, default=-1):
-    cell = h3.latlng_to_cell(lat, lon, H3_RESOLUTION)
-    return H3_TO_CLASS.get(cell, default)
+# def class_id_to_latlon(class_id: int):
+#     """Representative center (lat, lon) for a class."""
+#     x, y, z = CLASS_CENTERS_XYZ[class_id]
+#     lat = math.degrees(math.asin(z))
+#     lon = math.degrees(math.atan2(y, x))
+#     return lat, lon
 
 
-if __name__ == '__main__':
-    print(len(H3_TO_CLASS))   # should be 1999060 cells mapped or close
-    print(max(H3_TO_CLASS.values()))  # should be 2121 (0..2121)
-
-    lat, lon = 50.087, 14.421  # Prague test
-    print(latlon_to_class(lat, lon))
+# def latlon_to_class(lat, lon, default=-1):
+#     cell = h3.latlng_to_cell(lat, lon, H3_RESOLUTION)
+#     return H3_TO_CLASS.get(cell, default)
 
 
-    print("num classes:", NUM_CLASSES)            # should be 2122
-    print(CLASS_CENTERS_XYZ.shape)                # (2122, 3)
+# if __name__ == '__main__':
+#     print(len(H3_TO_CLASS))   # should be 1999060 cells mapped or close
+#     print(max(H3_TO_CLASS.values()))  # should be 2121 (0..2121)
 
-    lat, lon = 15.327128, -14.897281   # Prague
-    cid = latlon_to_class(lat, lon)
-    print("Prague class:", cid)
-    print("center of that class:", class_id_to_latlon(cid))
+#     lat, lon = 50.087, 14.421  # Prague test
+#     print(latlon_to_class(lat, lon))
+
+
+#     print("num classes:", NUM_CLASSES)            # should be 2122
+#     print(CLASS_CENTERS_XYZ.shape)                # (2122, 3)
+
+#     lat, lon = 15.327128, -14.897281   # Prague
+#     cid = latlon_to_class(lat, lon)
+#     print("Prague class:", cid)
+#     print("center of that class:", class_id_to_latlon(cid))
     
