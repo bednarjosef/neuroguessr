@@ -1,17 +1,9 @@
 import torch
-import torch.nn as nn
-import os
-import json
 import numpy as np
 import datetime
-from PIL import Image
-from torch.utils.data import DataLoader, Dataset, IterableDataset
-from datasets import load_from_disk
 
 from clusters import CLASS_CENTERS_XYZ
 from dataset import create_streetview_dataloader
-import glob
-import webdataset as wds
 
 # class LocalValDataset(Dataset):
 #     def __init__(self, hf_dir, transform, cluster_centers):
@@ -37,7 +29,7 @@ import webdataset as wds
 
 
 class Evaluator:
-    def __init__(self, CONFIG, transform, val_dir):
+    def __init__(self, CONFIG, classifier, transform, val_dir):
         self.device = CONFIG['device']
         
         # self.dataset = LocalValDataset(val_dir, transform, cluster_centers)
@@ -45,7 +37,7 @@ class Evaluator:
         self.loader = create_streetview_dataloader(CONFIG, val_dir, 'val', transform, workers=12)
 
         # self.centers_gpu = torch.tensor(cluster_centers, device=self.device, dtype=torch.float32)
-        self.centers_gpu = torch.tensor(CLASS_CENTERS_XYZ, device=self.device, dtype=torch.float32)
+        self.centers_gpu = torch.tensor(classifier.CLASS_CENTERS_XYZ, device=self.device, dtype=torch.float32)
 
     def haversine(self, lat1, lon1, lat2, lon2):
         R = 6371

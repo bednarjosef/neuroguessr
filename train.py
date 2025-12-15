@@ -124,7 +124,7 @@ def train():
 
     # evaluator
     print('Initializing evaluator...')
-    evaluator = Evaluator(CONFIG, eval_transform, val_directory)
+    evaluator = Evaluator(CONFIG, h3_classifier, eval_transform, val_directory)
 
     # optimizer
     # backbone_params = []
