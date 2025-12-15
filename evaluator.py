@@ -33,7 +33,7 @@ class Evaluator:
         
         # self.dataset = LocalValDataset(val_dir, transform, cluster_centers)
         # self.loader = DataLoader(self.dataset, batch_size=batch_size, num_workers=4)
-        self.loader = create_streetview_dataloader(CONFIG, val_dir, 'val', transform, workers=12)
+        self.loader = create_streetview_dataloader(CONFIG, classifier, val_dir, 'val', transform, workers=12)
 
         # self.centers_gpu = torch.tensor(cluster_centers, device=self.device, dtype=torch.float32)
         self.centers_gpu = torch.tensor(classifier.CLASS_CENTERS_XYZ, device=self.device, dtype=torch.float32)
