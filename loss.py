@@ -1,7 +1,7 @@
 import torch.nn.functional as F
 import torch
 
-from clusters import CLASS_CENTERS_XYZ, xyz_to_latlon
+from clusters import xyz_to_latlon
 
 EARTH_RADIUS = 6371.0
 
@@ -15,10 +15,11 @@ def haversine_batch(lat1, lon1, lat2, lon2):
 
 
 class PIGEONLoss():
-    def __init__(self, CONFIG):
-        x = CLASS_CENTERS_XYZ[:, 0]
-        y = CLASS_CENTERS_XYZ[:, 1]
-        z = CLASS_CENTERS_XYZ[:, 2]
+    def __init__(self, CONFIG, classifier):
+
+        x = classifier.CLASS_CENTERS_XYZ[:, 0]
+        y = classifier.CLASS_CENTERS_XYZ[:, 1]
+        z = classifier.CLASS_CENTERS_XYZ[:, 2]
 
         lats, lons = xyz_to_latlon(x, y, z)  # numpy
         self.cluster_lats = torch.tensor(lats, dtype=torch.float32, device=CONFIG['device'])

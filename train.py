@@ -157,7 +157,7 @@ def train():
     )
 
     print('Initializing PIGEON loss...')
-    pigeon = PIGEONLoss(CONFIG)
+    pigeon = PIGEONLoss(CONFIG, h3_classifier)
     scaler = torch.amp.GradScaler('cuda')
 
     # init wandb
