@@ -2,7 +2,6 @@ import torch
 import numpy as np
 import datetime
 
-from clusters import CLASS_CENTERS_XYZ
 from dataset import create_streetview_dataloader
 
 # class LocalValDataset(Dataset):
