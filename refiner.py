@@ -33,8 +33,68 @@ class Refiner():
             _top_probs, top_indices = torch.topk(probs, k=top_k, dim=1)
             return top_indices[0].cpu().tolist()
 
-    def guess(self, top_k, image: Image.Image):
-        classes = self.get_top_k_classes(top_k, image)
+
+    def guess(self, classifier, top_k, image: Image.Image):
+        """
+        The Hybrid Method:
+        1. Predict Top-K broad regions (H3 cells).
+        2. Retrieve ALL training images inside those regions.
+        3. Find the single most similar training image (Cosine Similarity).
+        4. Return the lat/lon of that specific image.
+        """
+        # 1. Get the Query Feature (1, D)
+        
+        self.model.eval()
+        image_input = image.convert("RGB")
+        image_tensor = self.transform(image_input).unsqueeze(0).to(self.device)
+        
+        with torch.no_grad():
+            query_feature = self.get_normalized_features(image_tensor)
+            
+        # 2. Get Coarse Candidates (List of Ints)
+        # We reuse the logic but skip re-running the model to save time
+        # (Optimization: You could run the model once and get both logits and features if you modify get_top_k)
+        # For now, we just call the method:
+        print(self.coords)
+        print(len(self.coords))
+        top_indices = self.get_top_k_classes(top_k, image_input)
+        locs = [classifier.class_to_latlon(cl) for cl in top_indices]
+        print(locs)
+
+        # 3. Gather Candidates from Index
+        candidate_features_list = []
+        candidate_coords_list = []
+        
+        for class_id in top_indices:
+            if class_id in self.embeddings:
+                # self.embeddings[class_id] is a Tensor of shape (N_samples, Dim)
+                candidate_features_list.append(self.embeddings[class_id])
+                candidate_coords_list.append(self.coords[class_id])
+        
+        # Edge Case: If valid classes have no images (rare but possible)
+        if not candidate_features_list:
+            print("Warning: No images found in predicted classes. Returning (0,0).")
+            return 0.0, 0.0
+
+        # 4. Stack all candidates into one big tensor on the GPU
+        # Shape: (Total_Candidates, Dim)
+        all_candidates = torch.cat(candidate_features_list).to(self.device)
+        all_coords = torch.cat(candidate_coords_list).to(self.device)
+        
+        # Ensure data types match (query might be float32, index might be float16)
+        all_candidates = all_candidates.to(dtype=query_feature.dtype)
+
+        # 5. Cosine Similarity Search
+        # Matrix Multiplication: (1, Dim) @ (Dim, Total_Candidates) -> (1, Total_Candidates)
+        # This calculates the dot product between the query and EVERY candidate instantly
+        sims = torch.mm(query_feature, all_candidates.t())
+        
+        # 6. Find the winner
+        best_idx = torch.argmax(sims)
+        best_coord = all_coords[best_idx]
+        
+        # Return as (lat, lon) float tuple
+        return best_coord[0].item(), best_coord[1].item()
 
 
     def get_features(self, images):
@@ -143,7 +203,7 @@ def load_model(CONFIG, ckpt_path):
 
 
 if __name__ == '__main__':
-    device = 'cuda'
+    device = 'cpu'
     ckpt_path = 'models/neuroguessr-861-large-acw-streetview-h3-unfrozen-2-best.pth'
     dataset = 'josefbednar/streetview-acw-300k'
     countries = [
@@ -168,3 +228,8 @@ if __name__ == '__main__':
     dataloader = create_streetview_dataloader(CONFIG, classifier, dataset, 'train', model.eval_transform, workers=12)
 
     refiner = Refiner(model, dataloader, device)
+
+    # query_img = Image.open("img.png")
+    # lat, lon = refiner.guess(classifier, top_k=5, image=query_img)
+
+    # print(f"Predicted Location: {lat}, {lon}")
