@@ -271,7 +271,7 @@ def main():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/neuroguessr-861-large-acw-streetview-h3-unfrozen-best.pth",
+        default="models/neuroguessr-861-large-acw-streetview-h3-unfrozen-2-best.pth",
         help="Path to the .pth checkpoint (state_dict) to load.",
     )
     args = parser.parse_args()
