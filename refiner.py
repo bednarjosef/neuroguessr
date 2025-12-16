@@ -1,7 +1,7 @@
 import torch, os
 import torch.nn.functional as F
 import numpy as np
-
+from PIL import Image
 from collections import defaultdict
 
 from h3_classification import H3Classifier
@@ -23,8 +23,19 @@ class Refiner():
 
         self.get_embeddings()
 
-    def guess(self, top_k, image):
-        pass
+    def get_top_k_classes(self, top_k, image: Image.Image):
+        self.model.eval()
+        image = image.convert("RGB")
+        image_tensor = self.transform(image).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            logits = self.model(image_tensor)
+            probs = F.softmax(logits, dim=1)
+            _top_probs, top_indices = torch.topk(probs, k=top_k, dim=1)
+            return top_indices[0].cpu().tolist()
+
+    def guess(self, top_k, image: Image.Image):
+        classes = self.get_top_k_classes(top_k, image)
+
 
     def get_features(self, images):
         return self.model.vision_encoder(images)
@@ -34,7 +45,7 @@ class Refiner():
         return F.normalize(features, p=2, dim=1)
     
     def get_embeddings(self):
-        filename = 'embeddings-861-class-unfrozen-h3.pt'
+        filename = 'embeddings-861-class-unfrozen-h3-val.pt'
         try:
             self.load_embeddings(filename)
         except FileNotFoundError:
@@ -54,12 +65,16 @@ class Refiner():
     def build_embeddings(self):
         print(f'Creating embeddings for dataset...')
 
+        torch.set_float32_matmul_precision('high')
+        torch.backends.cudnn.benchmark = True
+
         class_embeddings = defaultdict(list)
         class_coords = defaultdict(list)
 
         self.model.eval()
         with torch.no_grad():
             for batch_index, batch in enumerate(self.dataloader):
+                print(f'batch {batch_index+1}')
                 if (batch_index+1) % 100 == 0:
                     print(f'Processing batch {batch_index+1}/{1_200_000 // CONFIG['batch_size']}')
                 images = batch[0].to(self.device)
@@ -139,7 +154,7 @@ if __name__ == '__main__':
         'device': device,
         'model': 'ViT-L/14@336px',
         'countries': countries,
-        'batch_size': 16,
+        'batch_size': 512,
         'classes': 861,
         'backbone_unfrozen': False,
         'h3_resolution': 2,
@@ -148,6 +163,7 @@ if __name__ == '__main__':
     }
 
     model = load_model(CONFIG, ckpt_path)
+    torch.compile(model)
     classifier = H3Classifier(CONFIG)
     dataloader = create_streetview_dataloader(CONFIG, classifier, dataset, 'train', model.eval_transform, workers=12)
 
