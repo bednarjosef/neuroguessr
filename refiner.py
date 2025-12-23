@@ -55,11 +55,11 @@ class Refiner():
         # We reuse the logic but skip re-running the model to save time
         # (Optimization: You could run the model once and get both logits and features if you modify get_top_k)
         # For now, we just call the method:
-        print(self.coords)
-        print(len(self.coords))
+        # print(self.coords)
+        # print(len(self.coords))
         top_indices = self.get_top_k_classes(top_k, image_input)
         locs = [classifier.class_to_latlon(cl) for cl in top_indices]
-        print(locs)
+        # print(top_indices)
 
         # 3. Gather Candidates from Index
         candidate_features_list = []
@@ -70,6 +70,8 @@ class Refiner():
                 # self.embeddings[class_id] is a Tensor of shape (N_samples, Dim)
                 candidate_features_list.append(self.embeddings[class_id])
                 candidate_coords_list.append(self.coords[class_id])
+
+        # print(candidate_coords_list)
         
         # Edge Case: If valid classes have no images (rare but possible)
         if not candidate_features_list:
@@ -83,14 +85,17 @@ class Refiner():
         
         # Ensure data types match (query might be float32, index might be float16)
         all_candidates = all_candidates.to(dtype=query_feature.dtype)
+        print(all_coords)
 
         # 5. Cosine Similarity Search
         # Matrix Multiplication: (1, Dim) @ (Dim, Total_Candidates) -> (1, Total_Candidates)
         # This calculates the dot product between the query and EVERY candidate instantly
-        sims = torch.mm(query_feature, all_candidates.t())
+        # sims = torch.mm(query_feature, all_candidates.t())
+        dists = torch.cdist(query_feature, all_candidates, p=2)
         
         # 6. Find the winner
-        best_idx = torch.argmax(sims)
+        # best_idx = torch.argmax(sims)
+        best_idx = torch.argmin(dists)
         best_coord = all_coords[best_idx]
         
         # Return as (lat, lon) float tuple
@@ -113,14 +118,59 @@ class Refiner():
             self.save_embeddings(filename)
     
     def load_embeddings(self, filename):
+        # path = os.path.join(self.dir, filename)
+        # if not os.path.exists(path):
+        #     raise FileNotFoundError(f'File {path} does not exist.')
+        
+        # print(f'Loading embeddings from disk...')
+        # data = torch.load(path, map_location=self.device)
+        # self.embeddings = data['embeddings']
+        # self.coords = data['coords']
+
+        # ------------------
+        # path = os.path.join(self.dir, filename)
+        # if not os.path.exists(path):
+        #     raise FileNotFoundError(f'File {path} does not exist.')
+        
+        # print(f'Loading embeddings from disk...')
+        # data = torch.load(path, map_location=self.device)
+        
+        # # Re-map keys to integers: {37: tensor(...)} instead of {tensor(37): tensor(...)}
+        # self.embeddings = {k.item() if torch.is_tensor(k) else k: v 
+        #                    for k, v in data['embeddings'].items()}
+        # self.coords = {k.item() if torch.is_tensor(k) else k: v 
+        #                for k, v in data['coords'].items()}
+        
+        # print(f"Loaded {len(self.coords)} classes successfully.")
+
+        # -------------------
         path = os.path.join(self.dir, filename)
         if not os.path.exists(path):
             raise FileNotFoundError(f'File {path} does not exist.')
         
         print(f'Loading embeddings from disk...')
         data = torch.load(path, map_location=self.device)
-        self.embeddings = data['embeddings']
-        self.coords = data['coords']
+        
+        # 1. Use defaultdicts to collect fragments instead of overwriting them
+        temp_embeddings = defaultdict(list)
+        temp_coords = defaultdict(list)
+
+        # 2. Iterate through the raw data and group by the integer value of the key
+        for k, v in data['embeddings'].items():
+            # Convert key to standard int
+            idx = k.item() if torch.is_tensor(k) else k
+            temp_embeddings[idx].append(v)
+
+        for k, v in data['coords'].items():
+            idx = k.item() if torch.is_tensor(k) else k
+            temp_coords[idx].append(v)
+
+        # 3. Concatenate the fragments into single tensors per class
+        # We use torch.cat because the fragments are already shape (N, D)
+        self.embeddings = {k: torch.cat(v_list, dim=0) for k, v_list in temp_embeddings.items()}
+        self.coords = {k: torch.cat(v_list, dim=0) for k, v_list in temp_coords.items()}
+        
+        print(f"Loaded {len(self.coords)} classes successfully.")
     
     def build_embeddings(self):
         print(f'Creating embeddings for dataset...')
@@ -142,13 +192,14 @@ class Refiner():
                 image_lats = batch[2].to(self.device)
                 image_lons = batch[3].to(self.device)
 
-                features = self.get_normalized_features(images)
+                features = self.get_features(images)
                 features = features.cpu().half()
 
                 for image_index, class_id in enumerate(image_classes):
+                    cid = class_id.item()
                     image_coords = torch.tensor([image_lats[image_index], image_lons[image_index]], dtype=torch.float16)
-                    class_embeddings[class_id].append(features[image_index])
-                    class_coords[class_id].append(image_coords)
+                    class_embeddings[cid].append(features[image_index])
+                    class_coords[cid].append(image_coords)
 
         # Convert to tensors per class
         for class_id in class_embeddings:
@@ -225,11 +276,11 @@ if __name__ == '__main__':
     model = load_model(CONFIG, ckpt_path)
     torch.compile(model)
     classifier = H3Classifier(CONFIG)
-    dataloader = create_streetview_dataloader(CONFIG, classifier, dataset, 'train', model.eval_transform, workers=12)
+    dataloader = create_streetview_dataloader(CONFIG, classifier, dataset, 'val', model.eval_transform, workers=12)
 
     refiner = Refiner(model, dataloader, device)
 
-    # query_img = Image.open("img.png")
-    # lat, lon = refiner.guess(classifier, top_k=5, image=query_img)
+    query_img = Image.open("img4.png")
+    lat, lon = refiner.guess(classifier, top_k=5, image=query_img)
 
-    # print(f"Predicted Location: {lat}, {lon}")
+    print(f"Predicted Location: {lat}, {lon}")
