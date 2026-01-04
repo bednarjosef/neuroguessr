@@ -49,7 +49,7 @@ class Refiner():
         image_tensor = self.transform(image_input).unsqueeze(0).to(self.device)
         
         with torch.no_grad():
-            query_feature = self.get_normalized_features(image_tensor)
+            query_feature = self.get_features(image_tensor)
             
         # 2. Get Coarse Candidates (List of Ints)
         # We reuse the logic but skip re-running the model to save time
@@ -85,7 +85,7 @@ class Refiner():
         
         # Ensure data types match (query might be float32, index might be float16)
         all_candidates = all_candidates.to(dtype=query_feature.dtype)
-        print(all_coords)
+        # print(all_coords)
 
         # 5. Cosine Similarity Search
         # Matrix Multiplication: (1, Dim) @ (Dim, Total_Candidates) -> (1, Total_Candidates)
@@ -110,7 +110,7 @@ class Refiner():
         return F.normalize(features, p=2, dim=1)
     
     def get_embeddings(self):
-        filename = 'embeddings-861-class-unfrozen-h3-val.pt'
+        filename = 'embeddings-861-class-unfrozen-h3-prague-50k.pt'
         try:
             self.load_embeddings(filename)
         except FileNotFoundError:
@@ -118,14 +118,14 @@ class Refiner():
             self.save_embeddings(filename)
     
     def load_embeddings(self, filename):
-        # path = os.path.join(self.dir, filename)
-        # if not os.path.exists(path):
-        #     raise FileNotFoundError(f'File {path} does not exist.')
+        path = os.path.join(self.dir, filename)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f'File {path} does not exist.')
         
-        # print(f'Loading embeddings from disk...')
-        # data = torch.load(path, map_location=self.device)
-        # self.embeddings = data['embeddings']
-        # self.coords = data['coords']
+        print(f'Loading embeddings from disk...')
+        data = torch.load(path, map_location=self.device)
+        self.embeddings = data['embeddings']
+        self.coords = data['coords']
 
         # ------------------
         # path = os.path.join(self.dir, filename)
@@ -144,33 +144,33 @@ class Refiner():
         # print(f"Loaded {len(self.coords)} classes successfully.")
 
         # -------------------
-        path = os.path.join(self.dir, filename)
-        if not os.path.exists(path):
-            raise FileNotFoundError(f'File {path} does not exist.')
+        # path = os.path.join(self.dir, filename)
+        # if not os.path.exists(path):
+        #     raise FileNotFoundError(f'File {path} does not exist.')
         
-        print(f'Loading embeddings from disk...')
-        data = torch.load(path, map_location=self.device)
+        # print(f'Loading embeddings from disk...')
+        # data = torch.load(path, map_location=self.device)
         
-        # 1. Use defaultdicts to collect fragments instead of overwriting them
-        temp_embeddings = defaultdict(list)
-        temp_coords = defaultdict(list)
+        # # 1. Use defaultdicts to collect fragments instead of overwriting them
+        # temp_embeddings = defaultdict(list)
+        # temp_coords = defaultdict(list)
 
-        # 2. Iterate through the raw data and group by the integer value of the key
-        for k, v in data['embeddings'].items():
-            # Convert key to standard int
-            idx = k.item() if torch.is_tensor(k) else k
-            temp_embeddings[idx].append(v)
+        # # 2. Iterate through the raw data and group by the integer value of the key
+        # for k, v in data['embeddings'].items():
+        #     # Convert key to standard int
+        #     idx = k.item() if torch.is_tensor(k) else k
+        #     temp_embeddings[idx].append(v)
 
-        for k, v in data['coords'].items():
-            idx = k.item() if torch.is_tensor(k) else k
-            temp_coords[idx].append(v)
+        # for k, v in data['coords'].items():
+        #     idx = k.item() if torch.is_tensor(k) else k
+        #     temp_coords[idx].append(v)
 
-        # 3. Concatenate the fragments into single tensors per class
-        # We use torch.cat because the fragments are already shape (N, D)
-        self.embeddings = {k: torch.cat(v_list, dim=0) for k, v_list in temp_embeddings.items()}
-        self.coords = {k: torch.cat(v_list, dim=0) for k, v_list in temp_coords.items()}
+        # # 3. Concatenate the fragments into single tensors per class
+        # # We use torch.cat because the fragments are already shape (N, D)
+        # self.embeddings = {k: torch.cat(v_list, dim=0) for k, v_list in temp_embeddings.items()}
+        # self.coords = {k: torch.cat(v_list, dim=0) for k, v_list in temp_coords.items()}
         
-        print(f"Loaded {len(self.coords)} classes successfully.")
+        # print(f"Loaded {len(self.coords)} classes successfully.")
     
     def build_embeddings(self):
         print(f'Creating embeddings for dataset...')
@@ -186,7 +186,7 @@ class Refiner():
             for batch_index, batch in enumerate(self.dataloader):
                 print(f'batch {batch_index+1}')
                 if (batch_index+1) % 100 == 0:
-                    print(f'Processing batch {batch_index+1}/{1_200_000 // CONFIG['batch_size']}')
+                    print(f'Processing batch {batch_index+1}/{200_000 // CONFIG['batch_size']}')
                 images = batch[0].to(self.device)
                 image_classes = batch[1].to(self.device)
                 image_lats = batch[2].to(self.device)
@@ -256,7 +256,7 @@ def load_model(CONFIG, ckpt_path):
 if __name__ == '__main__':
     device = 'cpu'
     ckpt_path = 'models/neuroguessr-861-large-acw-streetview-h3-unfrozen-2-best.pth'
-    dataset = 'josefbednar/streetview-acw-300k'
+    dataset =  'josefbednar/prague-streetview-50k'  # 'josefbednar/streetview-acw-300k'
     countries = [
         'AL', 'AD', 'AR', 'AU', 'AT', 'BD', 'BE', 'BT', 'BO', 'BW', 'BR', 'BG', 'KH', 'CA', 'CL', 'CO', 'HR', 'CZ', 'DK', 'DO', 'EC', 'EE', 'SZ', 'FI', 'FR', 'DE', 'GH', 'GR', 'GL', 'GT', 'HU', 'IS', 'IN', 'ID', 'IE', 'IL', 'IT', 'JP', 'JO', 'KE', 'KG', 'LV', 'LB', 'LS', 'LI', 'LT', 'LU', 'MY', 'MX', 'MN', 'ME', 'NA', 'NL', 'NZ', 'NG', 'MK', 'NO', 'OM', 'PS', 'PA', 'PE', 'PH', 'PL', 'PT', 'QA', 'RO', 'RU', 'RW', 'SM', 'ST', 'SN', 'RS', 'SG', 'SK', 'SI', 'ZA', 'KR', 'ES', 'LK', 'SE', 'CH', 'TW', 'TH', 'TR', 'TN', 'UA', 'UG', 'AE', 'GB', 'US', 'UY', 'VN',
     ]
