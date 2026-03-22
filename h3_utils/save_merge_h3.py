@@ -2,73 +2,43 @@ import json
 import matplotlib.pyplot as plt
 import geopandas as gpd
 from shapely.geometry import Polygon
-import h3
+from h3 import api
 
-# =========================
-# CONFIG
-# =========================
-COUNTS_JSON_PATH = "h3_counts_res2.json"  # path to your counts JSON
-H3_RESOLUTION = 2                          # resolution used for those counts
+COUNTS_JSON_PATH = 'h3_counts_res2.json'
+H3_RESOLUTION = 2
 
-MIN_SAMPLES = 200                          # <- your new minimum
-MAX_NEIGHBOR_RING = 20                     # <- your big neighbor ring
+MIN_SAMPLES = 200
+MAX_NEIGHBOR_RING = 20
 
-MAPPING_OUT_PATH = f"h3_to_class_res{H3_RESOLUTION}_min{MIN_SAMPLES}_ring{MAX_NEIGHBOR_RING}.json"
+MAPPING_OUT_PATH = f'h3_to_class_res{H3_RESOLUTION}_min{MIN_SAMPLES}_ring{MAX_NEIGHBOR_RING}.json'
 
-# =========================
-# H3 compatibility helpers (v3 & v4)
-# =========================
-try:
-    from h3 import api
-    H3_V4 = True
-except ImportError:
-    api = None
-    H3_V4 = False
 
 def h3_k_ring(cell, k):
-    """Return neighbors within k rings, for both h3 v3 and v4."""
-    if hasattr(h3, "k_ring"):  # v3
-        return h3.k_ring(cell, k)
-    elif H3_V4:
-        return api.basic_str.grid_disk(cell, k)
-    else:
-        raise RuntimeError("No k_ring/grid_disk found in h3")
+    return api.basic_str.grid_disk(cell, k)
 
 def h3_to_boundary(cell, geo_json=True):
-    """
-    Get polygon boundary for a cell.
-    For v4, cell_to_boundary returns (lat, lon); we flip to (lon, lat) if geo_json=True.
-    """
-    if hasattr(h3, "h3_to_geo_boundary"):  # v3
-        return h3.h3_to_geo_boundary(cell, geo_json=geo_json)
-    elif H3_V4:
-        boundary = api.basic_str.cell_to_boundary(cell)  # list of (lat, lon)
-        if geo_json:
-            return [(lon, lat) for lat, lon in boundary]  # (lon, lat)
-        else:
-            return boundary
+    # get polygon boundry for cell
+    boundary = api.basic_str.cell_to_boundary(cell)  # list of (lat, lon)
+    if geo_json:
+        return [(lon, lat) for lat, lon in boundary]  # (lon, lat)
     else:
-        raise RuntimeError("No boundary function found in h3")
+        return boundary
 
-# =========================
-# Load counts
-# =========================
+
 with open(COUNTS_JSON_PATH) as f:
     counts = json.load(f)
 
 counts = {cell: int(c) for cell, c in counts.items()}
-print(f"Non-empty H3 cells: {len(counts)}")
-print(f"Total images       : {sum(counts.values())}")
+print(f'Non-empty H3 cells: {len(counts)}')
+print(f'Total images: {sum(counts.values())}')
 
-# =========================
-# Build merged mapping (small cells -> nearest big cell)
-# =========================
+# merge small cells -> nearest big cell
 big_cells = {cell for cell, c in counts.items() if c >= MIN_SAMPLES}
-print(f"Big cells (≥{MIN_SAMPLES} imgs): {len(big_cells)}")
+print(f'Big cells (≥{MIN_SAMPLES} imgs): {len(big_cells)}')
 
 sorted_big = sorted(big_cells, key=lambda c: counts[c], reverse=True)
 h3_to_class = {cell: i for i, cell in enumerate(sorted_big)}
-print(f"Initial number of classes (big cells): {len(h3_to_class)}")
+print(f'Initial number of classes (big cells): {len(h3_to_class)}')
 
 unassigned = 0
 for cell, c in counts.items():
@@ -88,20 +58,18 @@ for cell, c in counts.items():
     if not assigned:
         unassigned += 1
 
-print(f"Small cells with NO big neighbor within {MAX_NEIGHBOR_RING} rings: {unassigned}")
-print(f"Total cells with an assigned class: {len(h3_to_class)} out of {len(counts)}")
+print(f'Small cells with NO big neighbor within {MAX_NEIGHBOR_RING} rings: {unassigned}')
+print(f'Total cells with an assigned class: {len(h3_to_class)} out of {len(counts)}')
 
-# =========================
-# Save mapping for training
-# =========================
+
+# save mapping
 with open(MAPPING_OUT_PATH, "w") as f:
     json.dump(h3_to_class, f)
 
-print(f"Saved mapping to: {MAPPING_OUT_PATH}")
+print(f'Saved mapping to: {MAPPING_OUT_PATH}')
 
-# =========================
-# Build GeoDataFrame (per hex)
-# =========================
+
+# VISUALIZE ON A PLOT
 def h3_to_polygon(cell):
     boundary = h3_to_boundary(cell, geo_json=True)  # list of (lon, lat)
     return Polygon(boundary)
@@ -128,16 +96,12 @@ print(f"GeoDataFrame rows (assigned cells): {len(gdf)}")
 
 gdf["geometry"] = gdf["geometry"].buffer(0)
 
-# =========================
-# Dissolve by class_id -> one polygon/multipolygon per final class
-# =========================
+# dissolve by class_id -> one polygon/multipolygon per final class
 gdf_classes = gdf.dissolve(by="class_id")  # index is class_id
 gdf_classes = gdf_classes.reset_index()
 print(f"Number of final classes: {len(gdf_classes)}")
 
-# =========================
-# Plot: one outline per merged class
-# =========================
+# plot
 fig, ax = plt.subplots(figsize=(16, 8))
 
 # light fill per class (colors repeat, that's ok)

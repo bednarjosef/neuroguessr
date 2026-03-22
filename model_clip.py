@@ -7,7 +7,7 @@ class CLIPModel(nn.Module):
         super().__init__()
         self.device = CONFIG['device']
         self.num_classes = CONFIG['classes']
-        self.clip_model, transform = clip.load("ViT-L/14@336px", device=self.device, jit=False)
+        self.clip_model, transform = clip.load('ViT-L/14@336px', device=self.device, jit=False)
         self.clip_model.float()
 
         self.train_transform = transform

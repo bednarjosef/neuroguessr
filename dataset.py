@@ -4,8 +4,6 @@ from torch.utils.data import IterableDataset, DataLoader
 import webdataset as wds
 from datasets import load_dataset
 
-# from clusters import latlon_to_class
-
 
 class OSVDataset(IterableDataset):
     def __init__(self, classifier, countries, tar_directory, transform):
@@ -13,7 +11,6 @@ class OSVDataset(IterableDataset):
         self.countries = countries
         self.tar_directory = tar_directory
         self.tar_files = self._find_files()
-        # self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
         self.transform = transform
 
     def _find_files(self):
@@ -38,7 +35,7 @@ class OSVDataset(IterableDataset):
                 img_tensor = self.transform(img.convert("RGB"))
                 yield img_tensor, cluster_label, lat, lon
             
-            # simply skip if any error
+            # skip if any error
             except Exception:
                 continue
 
@@ -48,7 +45,6 @@ class StreetViewDataset(IterableDataset):
         self.classifier = classifier
         self.repo_id = repo_id
         self.countries = set(countries)
-        # self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
         self.transform = transform
         self.split = split
     
@@ -63,12 +59,6 @@ class StreetViewDataset(IterableDataset):
     def __iter__(self):
         if self.dataset is None:
             self.dataset = self._init_dataset()
-
-        # worker_info = torch.utils.data.get_worker_info()
-        # if worker_info is not None:
-        #     iterator = iter(self.dataset)
-        # else:
-        #     iterator = iter(self.dataset)
 
         for sample in self.dataset:
             try:

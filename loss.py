@@ -1,9 +1,17 @@
+# OPTIMAL LOSS FOR THIS TASK IS PIGEON LOSS
+# https://github.com/LukasHaas/PIGEON
+
 import torch.nn.functional as F
+import numpy as np
 import torch
 
-from clusters import xyz_to_latlon
-
 EARTH_RADIUS = 6371.0
+
+
+def xyz_to_latlon(x, y, z):
+    lats = np.degrees(np.arcsin(z))
+    lons = np.degrees(np.arctan2(y, x))
+    return lats, lons
 
 
 def haversine_batch(lat1, lon1, lat2, lon2):
@@ -26,29 +34,22 @@ class PIGEONLoss():
         self.cluster_lons = torch.tensor(lons, dtype=torch.float32, device=CONFIG['device'])
 
     def loss(self, CONFIG, logits, true_clusters, true_lats_deg, true_lons_deg):
-        """
-        logits: (B, K) model outputs
-        true_clusters: (B,) long, index of correct geocell/cluster
-        true_lats_deg, true_lons_deg: (B,) in degrees
-        cluster_lats, cluster_lons: (K,) in degrees
-        """
-
         # convert to radians & shape for broadcasting
-        lat1 = torch.deg2rad(true_lats_deg).unsqueeze(1)      # (B, 1)
-        lon1 = torch.deg2rad(true_lons_deg).unsqueeze(1)      # (B, 1)
-        lat2 = torch.deg2rad(self.cluster_lats).unsqueeze(0)       # (1, K)
-        lon2 = torch.deg2rad(self.cluster_lons).unsqueeze(0)       # (1, K)
+        lat1 = torch.deg2rad(true_lats_deg).unsqueeze(1)        # (B, 1)
+        lon1 = torch.deg2rad(true_lons_deg).unsqueeze(1)        # (B, 1)
+        lat2 = torch.deg2rad(self.cluster_lats).unsqueeze(0)    # (1, K)
+        lon2 = torch.deg2rad(self.cluster_lons).unsqueeze(0)    # (1, K)
 
         # distances from each sample to each cluster center
-        dists = haversine_batch(lat1, lon1, lat2, lon2)       # (B, K)
+        dists = haversine_batch(lat1, lon1, lat2, lon2)         # (B, K)
 
         # distance to true cell (per sample)
-        d_true = dists.gather(1, true_clusters.unsqueeze(1))  # (B, 1)
+        d_true = dists.gather(1, true_clusters.unsqueeze(1))    # (B, 1)
 
         # weights y_{n,i} = exp(-(d_i - d_true)/tau)
-        weights = torch.exp(-(dists - d_true) / CONFIG['tau_km'])          # (B, K)
+        weights = torch.exp(-(dists - d_true) / CONFIG['tau_km'])  # (B, K)
 
-        # OPTIONAL: normalize per row (not required mathematically, but common)
+        # normalize per row
         weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-12)
 
         log_probs = F.log_softmax(logits, dim=1)

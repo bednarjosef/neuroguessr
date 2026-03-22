@@ -9,6 +9,8 @@ from evaluator import Evaluator
 from loss import PIGEONLoss
 from dataset import create_streetview_dataloader
 
+# need to run h3_utils/build_h3_counts.py and h3_utils/save_merge_h3.py first
+
 ds_dir = 'josefbednar/streetview-acw-300k'
 val_directory = 'josefbednar/streetview-acw-300k'
 
@@ -57,13 +59,13 @@ def load_model(ckpt_path, model, device):
 
 
 def get_grouped_params(CONFIG, model):
-    head_lr = CONFIG['lr_head']         # 1e-3
-    backbone_lr = CONFIG['lr_backbone'] # 1e-5
+    head_lr = CONFIG['lr_head']
+    backbone_lr = CONFIG['lr_backbone']
     decay_factor = CONFIG['lr_group_decay']
 
     param_groups = []
     
-    # 1. Classifier Head (Uses High LR)
+    # classifier Head (high LR)
     param_groups.append({
         'params': [p for p in model.classifier.parameters() if p.requires_grad], 
         'lr': head_lr
@@ -71,7 +73,7 @@ def get_grouped_params(CONFIG, model):
     
     visual = model.vision_encoder
 
-    # 2. Output Layers (ln_post, proj) - Use backbone_lr (or slightly higher)
+    # output Layers (ln_post, proj) - backbone_lr
     post_params = [p for p in visual.ln_post.parameters() if p.requires_grad]
     if visual.proj is not None and visual.proj.requires_grad:
         post_params.append(visual.proj)
@@ -81,11 +83,11 @@ def get_grouped_params(CONFIG, model):
         'lr': backbone_lr
     })
     
-    # 3. Transformer Blocks (Decay from backbone_lr)
+    # transformer blocks
     blocks = list(visual.transformer.resblocks)
     for i, block in enumerate(reversed(blocks)):
         # i=0 is the top layer.
-        # We start at backbone_lr and decay downwards
+        # start at backbone_lr and decay downwards
         current_lr = backbone_lr * (decay_factor ** i)
         
         param_groups.append({
@@ -93,7 +95,7 @@ def get_grouped_params(CONFIG, model):
             'lr': current_lr
         })
         
-    # 4. Input/Stem (Lowest LR)
+    # input/stem (lowest LR)
     stem_params = []
     stem_params.extend([p for p in visual.conv1.parameters() if p.requires_grad])
     stem_params.extend([p for p in visual.ln_pre.parameters() if p.requires_grad])
@@ -118,9 +120,6 @@ def train():
     print('Initializing model...')
     model = CLIPModel(CONFIG).to(CONFIG['device'])
 
-    # load from checkpoint
-    # model = load_model('models/neuroguessr-1024-large-osv-pretrained.pth', model, CONFIG['device'])
-
     model = torch.compile(model)
 
     train_transform = model.train_transform
@@ -143,8 +142,8 @@ def train():
         max_lr=[g['lr'] for g in param_groups],
         total_steps=CONFIG["steps"] // CONFIG['accum_steps'],
         pct_start=0.1,
-        div_factor=25.0,     # Starts at max_lr / 25
-        final_div_factor=100.0 # Ends at max_lr / 100
+        div_factor=25.0,
+        final_div_factor=100.0
     )
 
     print('Initializing PIGEON loss...')
@@ -222,7 +221,7 @@ def train():
                 if current_median < best_median_km:
                     best_median_km = current_median
                     torch.save(model.state_dict(), "neuroguessr-861-large-acw-streetview-h3-unfrozen-2-best.pth")
-                    print(f"🔥 New Best Model! Median Error: {best_median_km:.0f} km")
+                    print(f"New Best Model! Median Error: {best_median_km:.0f} km")
     
 
     torch.save(model.state_dict(), "neuroguessr-861-large-acw-streetview-h3-unfrozen-2-final.pth")

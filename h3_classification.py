@@ -1,5 +1,8 @@
-import json, math, h3
+# TREAT THE GEOLOCATION PROBLEM AS A CLASSIFICATION PROBLEM
+# WE USE H3 HEXAGONS TO SLICE THE WORLD INTO SMALL CHUNKS
+# https://h3geo.org/
 
+import json, math, h3
 import numpy as np
 
 

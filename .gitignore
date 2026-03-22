@@ -1,5 +1,7 @@
 .venv/
 __pycache__/
 models/
+test_images/
+old/
 *.pth
 *.html
