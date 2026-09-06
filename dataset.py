@@ -49,7 +49,6 @@ class ClusterDataset(IterableDataset):
         self.cluster_centers = torch.tensor(cluster_centers, dtype=torch.float32)
 
     def get_closest_cluster(self, lat, lon):
-
         lat_rad = np.deg2rad(lat)
         lon_rad = np.deg2rad(lon)
         x = np.cos(lat_rad) * np.cos(lon_rad)
